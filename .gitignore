@@ -12,6 +12,7 @@ ENV/
 dist/
 build/
 .eggs/
+.pytest_cache/
 
 # AWS SAM / CDK
 .aws-sam/

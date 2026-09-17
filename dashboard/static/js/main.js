@@ -55,11 +55,25 @@
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
-  // Animate score bars
+  // Apply dynamic fill widths and language colors without inline style template errors
+  function initDynamicAttrs() {
+    document.querySelectorAll('[data-fill-width]').forEach(function (el) {
+      el.style.width = (el.getAttribute('data-fill-width') || '0') + '%';
+    });
+    document.querySelectorAll('.lang-dot[data-lang-color]').forEach(function (el) {
+      const color = el.getAttribute('data-lang-color');
+      if (color) el.style.backgroundColor = color;
+    });
+  }
+
+  // Animate score bars & meter fills
   function animateBars() {
-    const fills = document.querySelectorAll('.score-bar-fill, .gauge-bar-fill, .feature-bar-fill');
+    initDynamicAttrs();
+    const fills = document.querySelectorAll('.score-bar-fill, .gauge-bar-fill, .feature-bar-fill, .gh-meter-fill');
     fills.forEach(function (el) {
-      const targetWidth = el.style.width;
+      const dataWidth = el.getAttribute('data-fill-width');
+      const targetWidth = dataWidth !== null ? dataWidth + '%' : el.style.width;
+      if (!targetWidth) return;
       el.style.width = '0%';
       requestAnimationFrame(function () {
         setTimeout(function () {
