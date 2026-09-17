@@ -1505,6 +1505,10 @@ def inject_global_vars():
 @app.route("/")
 def landing_page():
     """Main Landing Page introducing Vouch, with OAuth & Demo mode entry points."""
+    # If user is already authenticated in session, route directly to repos
+    if session.get("github_token") and not request.args.get("reauth"):
+        return redirect(url_for("repos_page"))
+
     # If a repo query param was provided directly to root, route to that repo
     repo_arg = request.args.get("repo", "").strip()
     if repo_arg:
@@ -1517,10 +1521,12 @@ def landing_page():
     oauth_setup = request.args.get("oauth_setup") == "1"
     error = request.args.get("error")
 
+    has_oauth = bool(client_id) or bool(_resolve_github_token())
+
     return render_template(
         "landing.html",
         sample_repos=sample_repos,
-        has_oauth=bool(client_id),
+        has_oauth=has_oauth,
         oauth_setup=oauth_setup,
         error=error,
     )
@@ -1555,23 +1561,66 @@ def repos_page():
 # ── GitHub OAuth Authentication Routes ─────────────────────────
 @app.route("/auth/github")
 def auth_github():
-    """Initiate GitHub OAuth 2.0 flow."""
+    """Initiate GitHub OAuth 2.0 flow or auto-connect using configured GitHub token."""
     client_id = os.environ.get("GITHUB_CLIENT_ID", "").strip()
-    if not client_id:
-        return redirect(url_for("landing_page", oauth_setup="1"))
+    client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
 
-    state = secrets.token_urlsafe(16)
-    session["oauth_state"] = state
-    redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
-    scope = "read:user,repo"
-    github_auth_url = (
-        f"https://github.com/login/oauth/authorize"
-        f"?client_id={client_id}"
-        f"&redirect_uri={redirect_uri}"
-        f"&scope={scope}"
-        f"&state={state}"
-    )
-    return redirect(github_auth_url)
+    # If full OAuth client is configured, run standard GitHub OAuth 2.0 redirect
+    if client_id and client_secret:
+        state = secrets.token_urlsafe(16)
+        session["oauth_state"] = state
+        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+        scope = "read:user,repo"
+        github_auth_url = (
+            f"https://github.com/login/oauth/authorize"
+            f"?client_id={client_id}"
+            f"&redirect_uri={redirect_uri}"
+            f"&scope={scope}"
+            f"&state={state}"
+        )
+        return redirect(github_auth_url)
+
+    # Seamless automatic connect: If OAuth app is not registered on GitHub yet,
+    # connect the user's GitHub ID directly using their available GitHub token
+    existing_token = _resolve_github_token()
+    if existing_token:
+        try:
+            user_resp = requests.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"Bearer {existing_token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                timeout=10,
+            )
+            if user_resp.status_code == 200:
+                user_data = user_resp.json()
+                rate_resp = requests.get(
+                    "https://api.github.com/rate_limit",
+                    headers={
+                        "Authorization": f"Bearer {existing_token}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                    timeout=10,
+                )
+                rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
+
+                session["github_token"] = existing_token
+                session["user_login"] = user_data.get("login", "github_user")
+                session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
+                session["user_avatar"] = user_data.get("avatar_url", "")
+                session["auth_type"] = "oauth"
+                session["rate_limit"] = {
+                    "limit": rate_data.get("limit", 5000),
+                    "remaining": rate_data.get("remaining", 5000),
+                }
+                return redirect(url_for("repos_page"))
+            else:
+                return redirect(url_for("landing_page", error="Could not authenticate with GitHub token. Please verify your token."))
+        except Exception as exc:
+            return redirect(url_for("landing_page", error=f"GitHub connection error: {str(exc)}"))
+
+    return redirect(url_for("landing_page", oauth_setup="1"))
 
 
 @app.route("/auth/github/callback")

@@ -1750,4 +1750,167 @@ a:hover {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+   GitHub Single-Action Connect / Auth Card
+   Clean, minimal GitHub-style landing interface
+   ═══════════════════════════════════════════════════════════ */
+.landing-auth-body {
+  background-color: var(--color-canvas-subtle);
+  min-height: 100vh;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-auth-body .main-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  max-width: 100%;
+}
+
+.gh-auth-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  padding: 24px 16px;
+}
+
+.gh-auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 32px 28px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.12);
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-auth-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.gh-auth-icon-wrap {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  color: var(--color-success-fg);
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gh-auth-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+  margin-bottom: 8px;
+  letter-spacing: -0.2px;
+}
+
+.gh-auth-subtitle {
+  font-size: 13.5px;
+  color: var(--color-fg-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.gh-auth-alert {
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  margin-bottom: 18px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.gh-auth-actions {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 6px;
+}
+
+.gh-btn-connect-oauth {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 18px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #ffffff !important;
+  background-color: #24292f;
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  border-radius: 6px;
+  text-decoration: none;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.08s ease;
+  cursor: pointer;
+}
+
+.gh-btn-connect-oauth:hover {
+  background-color: #1f2328;
+  color: #ffffff !important;
+  text-decoration: none;
+  box-shadow: 0 2px 5px rgba(27, 31, 36, 0.2);
+}
+
+.gh-btn-connect-oauth:active {
+  transform: scale(0.99);
+}
+
+.gh-auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 20px 0 16px;
+  color: var(--color-fg-subtle);
+  font-size: 12px;
+}
+
+.gh-auth-divider::before,
+.gh-auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+.gh-auth-divider span {
+  padding: 0 12px;
+  font-size: 11.5px;
+  color: var(--color-fg-muted);
+  text-transform: lowercase;
+}
+
+.gh-auth-footer-link {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 12.5px;
+  border-top: 1px solid var(--color-border-muted);
+  padding-top: 16px;
+}
+
+.gh-auth-footer-link a {
+  color: var(--color-fg-muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.gh-auth-footer-link a:hover {
+  color: var(--color-accent-fg);
+  text-decoration: underline;
+}
+
+
 
