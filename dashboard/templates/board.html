@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}{% if active_repo_name %}{{ active_repo_name }} · {% endif %}Pull requests{% endblock %}
+{% block meta_description %}GitHub Pull Requests with Vouch Review Confidence Scoring{% endblock %}
+
+{% block content %}
+
+<!-- ── Repository Breadcrumb Header ────────────────────────── -->
+<div style="margin-bottom: 16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+  <div style="display:flex; align-items:center; gap:8px;">
+    <a href="/repos" class="gh-btn gh-btn-sm" style="display:inline-flex; align-items:center; gap:4px;">
+      ← Repositories
+    </a>
+    <span style="color:var(--color-fg-muted);">/</span>
+    <strong style="font-size:16px;">{{ active_repo_name or (current_repo.full_name if current_repo else 'kubernetes/kubernetes') }}</strong>
+    <span class="gh-public-badge">Public</span>
+    {% if current_repo and current_repo.stars %}
+    <span class="gh-label gh-label-confidence" style="display:inline-flex; align-items:center; gap:4px;">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path></svg>
+      {{ current_repo.stars }}
+    </span>
+    {% endif %}
+  </div>
+  <div style="display:flex; align-items:center; gap:8px;">
+    <button type="button" class="gh-btn gh-btn-sm" id="refetch-board-btn" data-owner="{{ active_repo_name.split('/')[0] }}" data-repo="{{ active_repo_name.split('/')[1] }}" title="Check for new pull requests and score them">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .655-.835ZM14.295 7.995a.75.75 0 0 1-.834-.656 5.5 5.5 0 0 0-9.592-2.97l1.204 1.204a.25.25 0 0 1-.177.427H1.25a.25.25 0 0 1-.25-.25V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-.655.835Z"></path>
+      </svg>
+      Refetch PRs
+    </button>
+    {% if current_repo and current_repo.url %}
+    <a href="{{ current_repo.url }}" target="_blank" rel="noopener noreferrer" class="gh-btn gh-btn-sm">
+      View on GitHub
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Vouch Intelligence Insights Summary ──────────────────── -->
+<div class="gh-insights-box" role="region" aria-label="Review intelligence metrics">
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num" id="stat-total">{{ stats.total_scored | int | string | replace(",", "") }}</div>
+    <div class="gh-kpi-label">Pull Requests Scored</div>
+  </div>
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num danger" id="stat-flagged">{{ stats.high_risk_flagged }}</div>
+    <div class="gh-kpi-label">High Residual Risk Flagged</div>
+  </div>
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num warning" id="stat-requeued">{{ stats.requeued_today }}</div>
+    <div class="gh-kpi-label">Re-queued for Review</div>
+  </div>
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num success" id="stat-avg">{{ "%.2f" | format(stats.avg_residual_risk) }}</div>
+    <div class="gh-kpi-label">Average Residual Risk</div>
+  </div>
+</div>
+
+<!-- ── Functional Filter Bar ────────────────────────────────── -->
+<form method="get" action="" id="filter-form">
+  <div class="gh-subnav">
+    <!-- Search input -->
+    <div class="gh-filter-box">
+      <div class="gh-filter-input-wrap">
+        <svg class="gh-filter-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"></path>
+        </svg>
+        <input
+          type="text"
+          id="search-input"
+          name="q"
+          class="gh-filter-input"
+          placeholder="Filter pull requests by title, author, number…"
+          value="{{ search or '' }}"
+          autocomplete="off"
+        />
+      </div>
+    </div>
+
+    <!-- Functional Selectors -->
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <select id="state-filter" name="state" class="gh-select" onchange="this.form.submit()" aria-label="Filter by state">
+        <option value="all" {% if state_filter == 'all' or not state_filter %}selected{% endif %}>All states</option>
+        <option value="open" {% if state_filter == 'open' %}selected{% endif %}>Open only</option>
+        <option value="closed" {% if state_filter == 'closed' %}selected{% endif %}>Closed / Merged only</option>
+      </select>
+
+      <select id="risk-filter" name="risk" class="gh-select" onchange="this.form.submit()" aria-label="Filter by risk">
+        <option value="all" {% if risk_filter == 'all' or not risk_filter %}selected{% endif %}>All risk levels</option>
+        <option value="high" {% if risk_filter == 'high' %}selected{% endif %}>High risk (≥ 0.65)</option>
+        <option value="medium" {% if risk_filter == 'medium' %}selected{% endif %}>Medium (0.35–0.65)</option>
+        <option value="low" {% if risk_filter == 'low' %}selected{% endif %}>Low (&lt; 0.35)</option>
+      </select>
+
+      <a href="?" class="gh-btn">Reset</a>
+    </div>
+  </div>
+</form>
+
+<!-- ── Missing PR Auto-Fetch Banner ────────────────────────── -->
+<div id="missing-pr-banner" style="display:none; margin-bottom:16px; padding:12px 16px; background:var(--color-canvas-subtle); border:1px solid var(--color-border-default); border-radius:6px; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+  <div style="display:flex; align-items:center; gap:8px;">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-accent-fg); flex-shrink:0;">
+      <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"></path>
+    </svg>
+    <span style="font-size:13px; color:var(--color-fg-default);">
+      Pull request <strong id="missing-pr-num-label">#</strong> is not in the cached list.
+    </span>
+  </div>
+  <button type="button" class="gh-btn gh-btn-sm gh-btn-primary" id="fetch-missing-pr-btn" data-owner="{{ active_repo_name.split('/')[0] }}" data-repo="{{ active_repo_name.split('/')[1] }}">
+    Fetch from GitHub &amp; Rate
+  </button>
+</div>
+
+<!-- ── Pull Request List Box ────────────────────────────────── -->
+<div class="gh-box" role="region" aria-label="Pull Requests">
+  <!-- Box Header -->
+  <div class="gh-box-header">
+    <div class="gh-box-header-left">
+      <a href="?state=open{% if risk_filter and risk_filter != 'all' %}&risk={{ risk_filter }}{% endif %}{% if search %}&q={{ search }}{% endif %}" class="gh-state-toggle open {% if state_filter == 'open' %}active{% endif %}" id="tab-open-prs">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path>
+        </svg>
+        <span>Open {{ open_count if open_count is defined else '' }}</span>
+      </a>
+
+      <a href="?state=closed{% if risk_filter and risk_filter != 'all' %}&risk={{ risk_filter }}{% endif %}{% if search %}&q={{ search }}{% endif %}" class="gh-state-toggle merged {% if state_filter == 'closed' %}active{% endif %}" id="tab-closed-prs">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1.5 0v.878A2.25 2.25 0 0 0 5.75 8.5h4.5A2.25 2.25 0 0 0 12.5 6.25v-.878a2.25 2.25 0 1 0-1.5 0v.878a.75.75 0 0 1-.75.75h-4.5A.75.75 0 0 1 5 6.25v-.878ZM11.75 4a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM7.25 12a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Zm1.5 1.372a2.25 2.25 0 1 0-1.5 0v-1.872a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .74.75v1.872Z"></path>
+        </svg>
+        <span>Closed {{ closed_count if closed_count is defined else '' }}</span>
+      </a>
+    </div>
+
+    <div class="gh-box-header-right">
+      <span id="card-count" style="font-weight:600; color:var(--color-fg-default);">{{ prs | length }} pull requests</span>
+    </div>
+  </div>
+
+  <!-- PR Rows List -->
+  <div id="pr-tbody">
+    {% for pr in prs %}
+    <div class="gh-pr-row" id="pr-{{ pr.pr_number }}">
+      <!-- Status Icon -->
+      <div class="gh-pr-icon {% if pr.state == 'open' %}open{% elif pr.merged_at %}merged{% else %}closed{% endif %}">
+        {% if pr.state == 'open' %}
+        <!-- Green Git Pull Request Icon -->
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path>
+        </svg>
+        {% else %}
+        <!-- Purple Git Merge Icon -->
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1.5 0v.878A2.25 2.25 0 0 0 5.75 8.5h4.5A2.25 2.25 0 0 0 12.5 6.25v-.878a2.25 2.25 0 1 0-1.5 0v.878a.75.75 0 0 1-.75.75h-4.5A.75.75 0 0 1 5 6.25v-.878ZM11.75 4a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM7.25 12a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Zm1.5 1.372a2.25 2.25 0 1 0-1.5 0v-1.872a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .74.75v1.872Z"></path>
+        </svg>
+        {% endif %}
+      </div>
+
+      <!-- Main Column -->
+      <div class="gh-pr-main">
+        <div class="gh-pr-title-line">
+          <!-- Real GitHub PR Link -->
+          <a href="{{ pr.pr_url }}" target="_blank" rel="noopener noreferrer" class="gh-pr-title" id="link-pr-{{ pr.pr_number }}" title="Open #{{ pr.pr_number }} on GitHub">
+            {{ pr.title }}
+          </a>
+
+          <!-- Labels -->
+          {% if pr.scored and pr.residual_risk is not none %}
+          {% if pr.re_queued %}
+          <span class="gh-label gh-label-requeued">re-review-required</span>
+          {% endif %}
+          <span class="gh-label gh-label-{{ pr.risk_tier }}">risk: {{ pr.risk_tier }} ({{ "%.2f" | format(pr.residual_risk or 0) }})</span>
+          <span class="gh-label gh-label-confidence">confidence: {{ pr.confidence_pct or 0 }}%</span>
+          {% else %}
+          <span class="gh-label" style="background:var(--color-canvas-subtle); color:var(--color-fg-muted); border:1px solid var(--color-border-default);">Pending Analysis</span>
+          {% endif %}
+          {% for sf in pr.sensitive_files %}
+          <span class="gh-label gh-label-confidence">{{ sf.split('/')[-1] }}</span>
+          {% endfor %}
+        </div>
+
+        <div class="gh-pr-meta">
+          <span>#{{ pr.pr_number }}</span>
+          {% if pr.state == 'open' %}
+          <span>opened on {{ pr.created_at | fmt_date }} by <strong>{{ pr.author }}</strong></span>
+          {% else %}
+          <span>by <strong>{{ pr.author }}</strong> was merged on {{ pr.merged_at | fmt_date }}</span>
+          {% endif %}
+          <span>·</span>
+          <span>Reviewer: <strong>{{ pr.reviewer or "—" }}</strong></span>
+          <span>·</span>
+          <span>Diff: <strong>{{ pr.diff_lines }} lines</strong> ({{ pr.changed_files }} files)</span>
+        </div>
+      </div>
+
+      <!-- Right Aside (Comments, Residual Risk Meter & Working Inspect Button) -->
+      <div class="gh-pr-aside">
+        {% if pr.scored and pr.residual_risk is not none %}
+        <div class="gh-meter" title="Residual risk = {{ '%.2f' | format(pr.residual_risk or 0) }}">
+          <span style="font-size:11px; font-weight:600; color:var(--color-fg-muted);">{{ "%.2f" | format(pr.residual_risk or 0) }}</span>
+          <div class="gh-meter-bar">
+            <div class="gh-meter-fill {{ pr.risk_tier }}" style="width: {{ pr.residual_pct or 0 }}%;"></div>
+          </div>
+        </div>
+        {% else %}
+        <span style="font-size:11px; color:var(--color-fg-muted); padding:2px 6px;">On Demand</span>
+        {% endif %}
+
+        <a href="{{ pr.pr_url }}" target="_blank" rel="noopener noreferrer" class="gh-comments-count" title="Comments on GitHub">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path>
+          </svg>
+          <span>{{ pr.comments | length if pr.comments else 1 }}</span>
+        </a>
+
+        {% if pr.scored and pr.residual_risk is not none %}
+        <a href="/pr/{{ pr.repo }}/{{ pr.pr_number }}" class="gh-btn gh-btn-sm" id="view-pr-{{ pr.pr_number }}" aria-label="Inspect PR {{ pr.pr_number }} in Vouch">
+          Inspect
+        </a>
+        {% else %}
+        <button type="button" class="gh-btn gh-btn-sm run-model-btn" data-repo="{{ pr.repo }}" data-owner="{{ active_repo_name.split('/')[0] }}" data-repo-name="{{ active_repo_name.split('/')[1] }}" data-num="{{ pr.pr_number }}">
+          Run Models
+        </button>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div style="padding: 48px; text-align: center; color: var(--color-fg-muted);">
+      <p style="font-size:16px; font-weight:600; margin-bottom:8px;">No matching pull requests found.</p>
+      <a href="?" class="gh-btn">Clear filters</a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}
