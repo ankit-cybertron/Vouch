@@ -56,21 +56,28 @@
   <!-- Left Column (75%) -->
   <div class="gh-pr-left">
 
-    <!-- Timeline Comment Box (PR summary) -->
+    <!-- Timeline Comment Box (Author PR Description) -->
     <div class="gh-timeline-comment">
       <div class="gh-comment-header">
         <div style="display:flex; align-items:center; gap:8px;">
           <img src="https://github.com/{{ pr.author }}.png" onerror="this.src='https://github.com/github.png'" class="gh-avatar" alt="{{ pr.author }}" />
-          <span><strong>{{ pr.author }}</strong> on {{ pr.created_at | fmt_date }}</span>
+          <span><strong>{{ pr.author }}</strong> commented on {{ pr.created_at | fmt_date }}</span>
         </div>
         <span class="gh-author-badge">Author</span>
       </div>
       <div class="gh-comment-body">
-        <p style="margin-bottom:8px;"><strong>Pull Request Description:</strong> {{ pr.title }}</p>
-        <p style="color:var(--color-fg-muted); font-size:13px;">
-          Diff: <strong>{{ pr.diff_lines }} lines</strong> (+{{ pr.additions }} / -{{ pr.deletions }}) across <strong>{{ pr.changed_files }} files</strong>.
-          Reviewed by <strong>{{ pr.reviewer or 'collaborator' }}</strong> in {{ (pr.review_duration_seconds or 0) // 60 }} minutes.
-        </p>
+        {% if pr.body %}
+          <div class="gh-pr-body-markdown">
+            {{ pr.body | fmt_markdown }}
+          </div>
+        {% else %}
+          <p style="color:var(--color-fg-muted); font-style:italic; margin-bottom:8px;">No description provided by author.</p>
+        {% endif %}
+        <div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--color-border-muted); color:var(--color-fg-muted); font-size:12px; display:flex; flex-wrap:wrap; gap:16px;">
+          <span>Diff: <strong>{{ pr.diff_lines }} lines</strong> (+{{ pr.additions }} / -{{ pr.deletions }}) across <strong>{{ pr.changed_files }} files</strong></span>
+          <span>Reviewer: <strong>{{ pr.reviewer or 'collaborator' }}</strong></span>
+          <span>Review duration: <strong>{{ (pr.review_duration_seconds or 0) // 60 }}m</strong></span>
+        </div>
       </div>
     </div>
 
@@ -179,32 +186,107 @@
       </div>
     </div>
 
-    <!-- Model 2 Inline Comments Box -->
-    {% if pr.comments %}
-    <div class="gh-box">
+    <!-- PR Real Conversation & Review Timeline -->
+    <div class="gh-box" style="margin-bottom:20px;">
       <div class="gh-box-header">
-        <div style="font-weight:600;">Model 2 · Review Comments Analysis</div>
-        <span class="gh-label gh-label-confidence">{{ pr.comments | length }} comments</span>
-      </div>
-      <div>
-        {% for c in pr.comments %}
-        <div style="padding:12px 16px; border-bottom:1px solid var(--color-border-muted); font-size:13px;">
-          {% if c.path %}
-          <div style="display:flex; align-items:center; gap:6px; font-family:ui-monospace, monospace; font-size:12px; color:var(--color-accent-fg); margin-bottom:4px;">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-fg-muted);"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v9.086A1.75 1.75 0 0 1 13.75 16H3.75A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h10a.25.25 0 0 0 .25-.25V5.5h-3a1.75 1.75 0 0 1-1.75-1.75V1.5Zm7 1.293V3.75c0 .138.112.25.25.25h1.957Z"></path></svg>
-            {{ c.path }}
-          </div>
-          {% endif %}
-          <div style="color:var(--color-fg-default);">"{{ c.body }}"</div>
-          <div style="margin-top:4px; font-size:11px; color:var(--color-fg-muted); display:flex; gap:6px;">
-            <span class="gh-label gh-label-confidence">{{ c.class_name }}</span>
-            <span>weight: {{ c.weight }}</span>
-          </div>
+        <div style="display:flex; align-items:center; gap:8px; font-weight:600;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 14.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h5.25a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path></svg>
+          <span>Real PR Conversation Timeline</span>
         </div>
-        {% endfor %}
+        <span class="gh-label gh-label-confidence">
+          {% if pr.conversation %}
+            {{ pr.conversation | length }} item{{ 's' if pr.conversation | length != 1 else '' }}
+          {% elif pr.comments %}
+            {{ pr.comments | length }} comments
+          {% else %}
+            0 comments
+          {% endif %}
+        </span>
+      </div>
+
+      <div class="gh-conversation-thread" style="padding:16px;">
+        {% if pr.conversation and pr.conversation | length > 1 %}
+          {% for item in pr.conversation %}
+            {% if not loop.first %}
+              <div class="gh-timeline-comment" style="margin-bottom:16px; border-color:var(--color-border-muted);">
+                <div class="gh-comment-header">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <img src="{{ item.user.avatar_url or 'https://github.com/' ~ item.user.login ~ '.png' }}" onerror="this.src='https://github.com/github.png'" class="gh-avatar" alt="{{ item.user.login }}" />
+                    <span>
+                      <a href="{{ item.user.html_url or 'https://github.com/' ~ item.user.login }}" target="_blank" rel="noopener noreferrer" style="font-weight:600; color:var(--color-fg-default);">
+                        {{ item.user.login }}
+                      </a>
+                      {% if item.type == 'review' and item.review_state == 'APPROVED' %}
+                        approved these changes
+                      {% elif item.type == 'review' and item.review_state == 'CHANGES_REQUESTED' %}
+                        requested changes
+                      {% elif item.type == 'review_comment' %}
+                        commented on code
+                      {% else %}
+                        commented
+                      {% endif %}
+                      on {{ item.created_at | fmt_date }}
+                    </span>
+                  </div>
+
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    {% if item.type == 'review' and item.review_state == 'APPROVED' %}
+                      <span class="gh-state-badge" style="background:#dafbe1; color:#1a7f37; font-size:11px; padding:2px 8px; border-radius:2em; font-weight:600; display:inline-flex; align-items:center; gap:4px;">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>
+                        Approved
+                      </span>
+                    {% elif item.type == 'review' and item.review_state == 'CHANGES_REQUESTED' %}
+                      <span class="gh-state-badge" style="background:#ffebe9; color:#cf222e; font-size:11px; padding:2px 8px; border-radius:2em; font-weight:600; display:inline-flex; align-items:center; gap:4px;">
+                        Changes Requested
+                      </span>
+                    {% endif %}
+                    <span class="gh-author-badge">{{ item.role_badge or 'Contributor' }}</span>
+                  </div>
+                </div>
+
+                <div class="gh-comment-body">
+                  {% if item.type == 'review_comment' and item.path %}
+                    <div class="gh-code-review-meta" style="margin-bottom:10px; padding:8px 12px; background:var(--color-canvas-subtle); border-radius:6px; font-size:12px; border:1px solid var(--color-border-muted); max-width:100%; overflow:hidden;">
+                      <div style="display:flex; align-items:center; gap:6px; font-family:ui-monospace, monospace; color:var(--color-accent-fg); margin-bottom:4px; word-break:break-all;">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-fg-muted); flex-shrink:0;"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v9.086A1.75 1.75 0 0 1 13.75 16H3.75A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h10a.25.25 0 0 0 .25-.25V5.5h-3a1.75 1.75 0 0 1-1.75-1.75V1.5Zm7 1.293V3.75c0 .138.112.25.25.25h1.957Z"></path></svg>
+                        <span>{{ item.path }}{% if item.line %}:{{ item.line }}{% endif %}</span>
+                      </div>
+                      {% if item.diff_hunk %}
+                        <pre class="gh-diff-snippet" style="margin:0; padding:8px 10px; background:#f6f8fa; border-radius:4px; font-size:11px; overflow-x:auto; border:1px solid #e1e4e8; font-family:ui-monospace, monospace; line-height:1.4; max-width:100%; box-sizing:border-box; word-break:break-all; overflow-wrap:anywhere;"><code>{{ item.diff_hunk }}</code></pre>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+
+                  <div style="min-width:0; max-width:100%; word-break:break-word; overflow-wrap:anywhere;">
+                    {{ item.body | fmt_markdown }}
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+          {% endfor %}
+        {% elif pr.comments %}
+          {% for c in pr.comments %}
+            <div style="padding:12px 16px; border-bottom:1px solid var(--color-border-muted); font-size:13px; word-break:break-word; overflow-wrap:anywhere;">
+              {% if c.path %}
+              <div style="display:flex; align-items:center; gap:6px; font-family:ui-monospace, monospace; font-size:12px; color:var(--color-accent-fg); margin-bottom:4px; word-break:break-all;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-fg-muted); flex-shrink:0;"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v9.086A1.75 1.75 0 0 1 13.75 16H3.75A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h10a.25.25 0 0 0 .25-.25V5.5h-3a1.75 1.75 0 0 1-1.75-1.75V1.5Zm7 1.293V3.75c0 .138.112.25.25.25h1.957Z"></path></svg>
+                {{ c.path }}
+              </div>
+              {% endif %}
+              <div style="color:var(--color-fg-default); word-break:break-word; overflow-wrap:anywhere;">"{{ c.body }}"</div>
+              <div style="margin-top:4px; font-size:11px; color:var(--color-fg-muted); display:flex; gap:6px;">
+                <span class="gh-label gh-label-confidence">{{ c.class_name }}</span>
+                <span>weight: {{ c.weight }}</span>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div style="padding:24px; text-align:center; color:var(--color-fg-muted); font-size:13px;">
+            No conversation comments recorded on this pull request yet.
+          </div>
+        {% endif %}
       </div>
     </div>
-    {% endif %}
 
   </div>
 

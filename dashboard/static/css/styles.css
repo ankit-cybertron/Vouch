@@ -35,6 +35,11 @@
   --color-done-subtle: #fbefff;
 }
 
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   font-size: 14px;
@@ -45,6 +50,10 @@ body {
   display: flex;
   flex-direction: column;
   -webkit-font-smoothing: antialiased;
+}
+
+img, svg, canvas, video {
+  max-width: 100%;
 }
 
 a {
@@ -305,9 +314,6 @@ a:hover {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-}
-@media (max-width: 800px) {
-  .gh-insights-box { grid-template-columns: repeat(2, 1fr); }
 }
 
 .gh-kpi-item {
@@ -583,11 +589,13 @@ a:hover {
   margin-bottom: 20px;
 }
 .gh-pr-detail-title-line {
-  font-size: 32px;
+  font-size: clamp(20px, 3.2vw + 10px, 32px);
   font-weight: 400;
   line-height: 1.25;
   color: var(--color-fg-default);
   margin-bottom: 8px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .gh-pr-detail-title-line .pr-num {
   color: var(--color-fg-muted);
@@ -625,15 +633,24 @@ a:hover {
   background-color: var(--color-danger-emphasis);
 }
 
-/* ── GitHub PR Detail Two-Column Layout ─────────────────────── */
 .gh-pr-layout {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 24px;
   align-items: start;
+  width: 100%;
+  min-width: 0;
 }
-@media (max-width: 900px) {
-  .gh-pr-layout { grid-template-columns: 1fr; }
+
+.gh-pr-left {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.gh-sidebar {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
 }
 
 /* ── GitHub Timeline Comment Box ────────────────────────────── */
@@ -643,6 +660,8 @@ a:hover {
   background-color: var(--color-canvas-default);
   margin-bottom: 20px;
   overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
 }
 .gh-comment-header {
   background-color: var(--color-canvas-subtle);
@@ -653,6 +672,10 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .gh-comment-header strong {
   color: var(--color-fg-default);
@@ -664,12 +687,23 @@ a:hover {
   border: 1px solid var(--color-border-default);
   border-radius: 2em;
   padding: 0 7px;
+  flex-shrink: 0;
 }
 .gh-comment-body {
   padding: 16px;
   font-size: 14px;
   line-height: 1.6;
   color: var(--color-fg-default);
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.gh-pr-body-markdown {
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* ── GitHub PR Checks / Vouch Merge Box ─────────────────────── */
@@ -802,12 +836,6 @@ a:hover {
   grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   gap: 16px;
   margin-top: 16px;
-}
-
-@media (max-width: 768px) {
-  .gh-repo-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .gh-repo-card {
@@ -1009,4 +1037,452 @@ a:hover {
     transform: rotate(360deg);
   }
 }
+
+/* ── GitHub Markdown & Conversation Timeline Styling ─────────── */
+.gh-md-content {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--color-fg-default);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+.gh-md-content p {
+  margin: 0 0 10px 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+.gh-md-content p:last-child {
+  margin-bottom: 0;
+}
+.gh-md-h1 { font-size: 18px; font-weight: 600; margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--color-border-muted); word-break: break-word; overflow-wrap: anywhere; }
+.gh-md-h2 { font-size: 16px; font-weight: 600; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--color-border-muted); word-break: break-word; overflow-wrap: anywhere; }
+.gh-md-h3 { font-size: 14.5px; font-weight: 600; margin: 12px 0 6px; word-break: break-word; overflow-wrap: anywhere; }
+.gh-md-h4 { font-size: 13.5px; font-weight: 600; margin: 10px 0 4px; color: var(--color-fg-default); word-break: break-word; overflow-wrap: anywhere; }
+
+.gh-inline-code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  background-color: rgba(175, 184, 193, 0.2);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  color: var(--color-fg-default);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.gh-code-block {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  background-color: #f6f8fa;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 10px 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.gh-diff-snippet {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  background-color: #f6f8fa;
+  color: #1f2328;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.gh-md-quote {
+  border-left: 3px solid var(--color-border-default);
+  margin: 8px 0;
+  padding: 0 12px;
+  color: var(--color-fg-muted);
+}
+
+.gh-md-li {
+  margin-left: 20px;
+  list-style-type: disc;
+}
+
+.gh-task-item {
+  list-style-type: none;
+  margin-left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gh-md-link {
+  color: var(--color-accent-fg);
+  text-decoration: none;
+}
+.gh-md-link:hover {
+  text-decoration: underline;
+}
+
+.gh-conversation-thread {
+  background-color: var(--color-canvas-default);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COMPREHENSIVE RESPONSIVE DESIGN SYSTEM
+   Fluid scaling across Ultra-Wide, Desktop, Tablet & Mobile
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 1. Ultra-Wide & Large Desktop Displays (>= 1440px) ───── */
+@media (min-width: 1440px) {
+  .gh-nav-inner,
+  .main-content,
+  .gh-footer-inner {
+    max-width: 1480px;
+  }
+  .gh-pr-layout {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 32px;
+  }
+  .gh-repo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 20px;
+  }
+  .gh-insights-box {
+    padding: 20px 24px;
+    gap: 24px;
+  }
+  .gh-kpi-num {
+    font-size: 26px;
+  }
+}
+
+/* ── 2. 4K & Ultra-Wide Cinema Displays (>= 1800px) ───────── */
+@media (min-width: 1800px) {
+  .gh-nav-inner,
+  .main-content,
+  .gh-footer-inner {
+    max-width: 1720px;
+  }
+  .gh-pr-layout {
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 40px;
+  }
+  .gh-repo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+    gap: 24px;
+  }
+  .gh-insights-box {
+    padding: 24px 32px;
+    gap: 32px;
+  }
+  .gh-kpi-num {
+    font-size: 28px;
+  }
+  .gh-kpi-label {
+    font-size: 13px;
+  }
+  .gh-pr-title {
+    font-size: 17px;
+  }
+}
+
+/* ── 3. Tablets & Small Laptops (<= 1024px) ───────────────── */
+@media (max-width: 1024px) {
+  .gh-insights-box {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .gh-kpi-item:nth-child(2) {
+    border-right: none;
+  }
+  .gh-kpi-item:nth-child(1),
+  .gh-kpi-item:nth-child(2) {
+    border-bottom: 1px solid var(--color-border-muted);
+    padding-bottom: 12px;
+  }
+}
+
+/* ── 4. Compact Tablet & Large Mobile (<= 900px) ──────────── */
+@media (max-width: 900px) {
+  .gh-pr-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .gh-sidebar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    border-top: 1px solid var(--color-border-default);
+    padding-top: 20px;
+    margin-top: 12px;
+  }
+  .gh-sidebar-section {
+    background: var(--color-canvas-subtle);
+    border: 1px solid var(--color-border-default);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--color-border-default);
+  }
+}
+
+/* ── 5. Mobile & Phablets (<= 768px) ──────────────────────── */
+@media (max-width: 768px) {
+  /* Navigation Bar */
+  .gh-nav {
+    padding: 10px 14px;
+  }
+  .gh-nav-inner {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand status"
+      "links links";
+    gap: 10px 8px;
+    align-items: center;
+  }
+  .gh-nav-left {
+    display: contents;
+  }
+  .gh-brand {
+    grid-area: brand;
+  }
+  .gh-nav-right {
+    grid-area: status;
+    justify-content: flex-end;
+  }
+  .gh-nav-links {
+    grid-area: links;
+    display: flex;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+    gap: 6px;
+  }
+  .gh-nav-links::-webkit-scrollbar {
+    display: none;
+  }
+  .gh-nav-link {
+    flex-shrink: 0;
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+
+  /* Main Content Spacing */
+  .main-content {
+    padding: 16px 14px;
+  }
+
+  /* Subnav & Filtering */
+  .gh-subnav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .gh-filter-box {
+    min-width: 0;
+    width: 100%;
+  }
+  .gh-subnav > div:last-child {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .gh-select {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 130px;
+  }
+
+  /* PR Board List Rows */
+  .gh-pr-row {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    gap: 6px 0;
+  }
+  .gh-pr-icon {
+    margin-right: 8px;
+    margin-top: 2px;
+  }
+  .gh-pr-main {
+    flex: 1 1 calc(100% - 28px);
+    min-width: 0;
+  }
+  .gh-pr-title {
+    font-size: 15px;
+    word-break: break-word;
+  }
+  .gh-pr-meta {
+    font-size: 12px;
+    line-height: 1.45;
+    margin-top: 4px;
+  }
+  .gh-pr-aside {
+    width: 100%;
+    margin-left: 0;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-border-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .gh-meter {
+    align-items: flex-start;
+  }
+
+  /* PR Detail Page */
+  .gh-pr-status-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .gh-pr-status-bar .gh-btn {
+    width: 100%;
+    justify-content: center;
+    margin-left: 0 !important;
+    padding: 6px 14px;
+  }
+  .gh-comment-header {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .gh-checks-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .gh-check-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .gh-check-item > .gh-label {
+    align-self: flex-start;
+  }
+
+  /* Repositories Page */
+  .gh-repos-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .gh-repos-page-header > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+  .gh-repo-grid {
+    grid-template-columns: 1fr;
+  }
+  .gh-topics-row {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .gh-topics-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Retrospective Table */
+  .gh-table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .gh-validation-table {
+    min-width: 680px;
+  }
+
+  /* Modal Dialog */
+  .gh-modal-backdrop {
+    padding: 12px;
+  }
+  .gh-modal {
+    width: min(560px, calc(100vw - 24px));
+    max-height: calc(100vh - 32px);
+    margin: auto;
+  }
+  .gh-modal-footer {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── 6. Compact Mobile Phones (<= 480px) ──────────────────── */
+@media (max-width: 480px) {
+  .main-content {
+    padding: 12px 10px;
+  }
+  .gh-nav {
+    padding: 8px 10px;
+  }
+  .gh-brand-name {
+    font-size: 15px;
+  }
+  .gh-brand .gh-label {
+    display: none; /* Keep brand tidy on 320px–375px screens */
+  }
+
+  /* Insights Box 1-column */
+  .gh-insights-box {
+    grid-template-columns: 1fr;
+    padding: 12px 14px;
+    gap: 12px;
+  }
+  .gh-kpi-item {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border-muted);
+    padding-right: 0;
+    padding-bottom: 10px;
+  }
+  .gh-kpi-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .gh-kpi-num {
+    font-size: 22px;
+  }
+
+  /* Subnav Select Full-Width */
+  .gh-subnav .gh-select {
+    flex: 1 1 100%;
+  }
+
+  /* Sidebar single column on narrow mobile */
+  .gh-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  /* Footer compact center */
+  .gh-footer {
+    padding: 16px 12px;
+    text-align: center;
+  }
+  .gh-footer-inner {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+  }
+  .gh-repo-card-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
 
