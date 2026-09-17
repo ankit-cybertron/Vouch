@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Vouch - Review confidence scoring and risk-aware re-queuing
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        EVENTS_TABLE: !Ref VouchEventsTable
+        PRS_TABLE: !Ref VouchPRsTable
+        REVIEWS_TABLE: !Ref VouchReviewsTable
+        BASELINES_TABLE: !Ref VouchBaselinesTable
+        FILES_TABLE: !Ref VouchFilesTable
+        RAW_BUCKET: !Ref VouchRawBucket
+        EVENT_BUS_NAME: !Ref VouchEventBus
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  GithubWebhookSecret:
+    Type: String
+    NoEcho: true
+    Description: GitHub App webhook secret for HMAC verification
+  RiskModelEndpoint:
+    Type: String
+    Default: ""
+    Description: SageMaker endpoint name for change risk model
+  DepthModelEndpoint:
+    Type: String
+    Default: ""
+    Description: SageMaker endpoint name for review depth model
+  BedrockModelId:
+    Type: String
+    Default: "anthropic.claude-3-haiku-20240307-v1:0"
+
+Resources:
+
+  # ─────────────────────────────────────────────
+  # S3 Bucket
+  # ─────────────────────────────────────────────
+  VouchRawBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "vouch-${Environment}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireRawDiffs
+            Status: Enabled
+            Prefix: raw/
+            ExpirationInDays: 30
+
+  # ─────────────────────────────────────────────
+  # DynamoDB Tables
+  # ─────────────────────────────────────────────
+  VouchEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "vouch-events-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  VouchPRsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "vouch-prs-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+
+  VouchReviewsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "vouch-reviews-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  VouchBaselinesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "vouch-baselines-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+
+  VouchFilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "vouch-files-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+
+  # ─────────────────────────────────────────────
+  # EventBridge
+  # ─────────────────────────────────────────────
+  VouchEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "vouch-events-${Environment}"
+
+  # ─────────────────────────────────────────────
+  # Webhook Ingest Lambda
+  # ─────────────────────────────────────────────
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "vouch-ingest-${Environment}"
+      CodeUri: ../ingest/
+      Handler: handler.lambda_handler
+      Environment:
+        Variables:
+          GITHUB_WEBHOOK_SECRET: !Ref GithubWebhookSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VouchEventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VouchPRsTable
+        - S3WritePolicy:
+            BucketName: !Ref VouchRawBucket
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref VouchEventBus
+      Events:
+        WebhookAPI:
+          Type: Api
+          Properties:
+            Path: /webhook
+            Method: post
+
+  # ─────────────────────────────────────────────
+  # Feature Extraction Lambda
+  # ─────────────────────────────────────────────
+  FeatureFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "vouch-features-${Environment}"
+      CodeUri: ../features/
+      Handler: extractor.lambda_handler
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VouchPRsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref VouchFilesTable
+        - S3ReadPolicy:
+            BucketName: !Ref VouchRawBucket
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref VouchEventBus
+
+  # ─────────────────────────────────────────────
+  # Scoring Lambda (called by Step Functions)
+  # ─────────────────────────────────────────────
+  ScoringFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "vouch-scoring-${Environment}"
+      CodeUri: ../scoring/
+      Handler: residual.lambda_handler
+      Timeout: 60
+      Environment:
+        Variables:
+          RISK_ENDPOINT: !Ref RiskModelEndpoint
+          DEPTH_ENDPOINT: !Ref DepthModelEndpoint
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VouchPRsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VouchReviewsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VouchBaselinesTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sagemaker:InvokeEndpoint
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt VouchNotificationTopic.TopicName
+
+  # ─────────────────────────────────────────────
+  # SNS Notification Topic
+  # ─────────────────────────────────────────────
+  VouchNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "vouch-notifications-${Environment}"
+
+  # ─────────────────────────────────────────────
+  # Step Functions State Machine
+  # ─────────────────────────────────────────────
+  VouchStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "vouch-scoring-pipeline-${Environment}"
+      DefinitionUri: state_machine.asl.json
+      DefinitionSubstitutions:
+        ScoringFunctionArn: !GetAtt ScoringFunction.Arn
+        NotificationTopicArn: !Ref VouchNotificationTopic
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ScoringFunction
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt VouchNotificationTopic.TopicName
+
+Outputs:
+  WebhookUrl:
+    Description: GitHub App webhook endpoint URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/webhook"
+  RawBucketName:
+    Value: !Ref VouchRawBucket
+  StateMachineArn:
+    Value: !Ref VouchStateMachine
+  NotificationTopicArn:
+    Value: !Ref VouchNotificationTopic

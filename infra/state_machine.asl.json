@@ -1,0 +1,162 @@
+{
+  "Comment": "Vouch scoring pipeline — Steps 6 through 10",
+  "StartAt": "ScoreReviewDepth",
+  "States": {
+    "ScoreReviewDepth": {
+      "Type": "Task",
+      "Resource": "${ScoringFunctionArn}",
+      "Parameters": {
+        "stage": "depth",
+        "pr_key.$": "$.pr_key",
+        "review_id.$": "$.review_id"
+      },
+      "ResultPath": "$.depth_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleScoringFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "EvaluateAttentionState"
+    },
+    "EvaluateAttentionState": {
+      "Type": "Task",
+      "Resource": "${ScoringFunctionArn}",
+      "Parameters": {
+        "stage": "attention",
+        "pr_key.$": "$.pr_key",
+        "review_id.$": "$.review_id",
+        "depth_result.$": "$.depth_result"
+      },
+      "ResultPath": "$.attention_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleScoringFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ComputeResidualRisk"
+    },
+    "ComputeResidualRisk": {
+      "Type": "Task",
+      "Resource": "${ScoringFunctionArn}",
+      "Parameters": {
+        "stage": "residual",
+        "pr_key.$": "$.pr_key",
+        "review_id.$": "$.review_id",
+        "depth_result.$": "$.depth_result",
+        "attention_result.$": "$.attention_result"
+      },
+      "ResultPath": "$.residual_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleScoringFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "GenerateExplanation"
+    },
+    "GenerateExplanation": {
+      "Type": "Task",
+      "Resource": "${ScoringFunctionArn}",
+      "Parameters": {
+        "stage": "explain",
+        "pr_key.$": "$.pr_key",
+        "residual_result.$": "$.residual_result"
+      },
+      "ResultPath": "$.explanation",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "MakeRoutingDecision",
+          "ResultPath": "$.explanation_error"
+        }
+      ],
+      "Next": "MakeRoutingDecision"
+    },
+    "MakeRoutingDecision": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.residual_result.residual_risk",
+          "NumericGreaterThan": 0.65,
+          "Next": "SendReReviewNotification"
+        }
+      ],
+      "Default": "RecordOutcome"
+    },
+    "SendReReviewNotification": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${NotificationTopicArn}",
+        "Message": {
+          "pr_key.$": "$.pr_key",
+          "residual_risk.$": "$.residual_result.residual_risk",
+          "explanation.$": "$.explanation.text",
+          "re_reviewer.$": "$.residual_result.suggested_reviewer"
+        },
+        "Subject": "Vouch: High residual risk — re-review requested"
+      },
+      "ResultPath": "$.notification",
+      "Next": "RecordOutcome"
+    },
+    "RecordOutcome": {
+      "Type": "Task",
+      "Resource": "${ScoringFunctionArn}",
+      "Parameters": {
+        "stage": "record",
+        "pr_key.$": "$.pr_key",
+        "residual_result.$": "$.residual_result",
+        "explanation.$": "$.explanation",
+        "re_queued.$": "$.residual_result.re_queued"
+      },
+      "End": true
+    },
+    "HandleScoringFailure": {
+      "Type": "Task",
+      "Resource": "${ScoringFunctionArn}",
+      "Parameters": {
+        "stage": "failure",
+        "pr_key.$": "$.pr_key",
+        "error.$": "$.error"
+      },
+      "End": true
+    }
+  }
+}
