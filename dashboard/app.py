@@ -11,6 +11,8 @@ Routes:
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import html
 import math
 import os
 import re
@@ -18,8 +20,9 @@ import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 
+from markupsafe import Markup
 import requests
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, redirect
 
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(
@@ -31,14 +34,66 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vouch-dev-secret")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 
-# Optional GitHub token — set GITHUB_TOKEN env var for higher rate limits (5000/hr vs 60/hr)
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_HEADERS = {
-    "Accept": "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-}
-if GITHUB_TOKEN:
-    GITHUB_HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+def _resolve_github_token() -> str:
+    """Dynamically resolve GitHub personal access token with maximum resilience."""
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if token:
+        return token
+    curr_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(curr_dir, ".env"),
+        os.path.join(os.path.dirname(curr_dir), ".env"),
+        os.path.join(os.getcwd(), ".env"),
+    ]
+    for env_path in candidates:
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GITHUB_TOKEN="):
+                            t = line.split("=", 1)[1].strip().strip("\"'")
+                            if t:
+                                os.environ["GITHUB_TOKEN"] = t
+                                return t
+            except Exception:
+                pass
+
+    try:
+        import subprocess
+        proc = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n",
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        for line in proc.stdout.splitlines():
+            if line.startswith("password="):
+                t = line.split("=", 1)[1].strip()
+                if t:
+                    os.environ["GITHUB_TOKEN"] = t
+                    return t
+    except Exception:
+        pass
+
+    return ""
+
+
+def _get_github_headers() -> dict[str, str]:
+    token = _resolve_github_token()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+# Initialize token on module load
+GITHUB_TOKEN = _resolve_github_token()
+GITHUB_HEADERS = _get_github_headers()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scoring helpers (heuristic — runs without a trained model)
@@ -111,14 +166,16 @@ REPO_PRS_CACHE: dict[str, list[dict]] = {}
 
 
 def _github_get(url: str, params: dict | None = None) -> dict | list | None:
+    headers = _get_github_headers()
     try:
-        resp = requests.get(url, headers=GITHUB_HEADERS, params=params, timeout=12)
+        resp = requests.get(url, headers=headers, params=params, timeout=12)
         if resp.status_code == 200:
             return resp.json()
         elif resp.status_code == 403:
-            # Check for rate limit
             print(f"[WARN] GitHub API 403 Forbidden: {resp.text[:120]}")
             return {"_rate_limit_exceeded": True, "message": resp.json().get("message", "API rate limit exceeded")}
+        elif resp.status_code == 404:
+            return {"_not_found": True}
         return None
     except Exception as exc:
         print(f"[ERROR] GitHub request error {url}: {exc}")
@@ -367,6 +424,9 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         "additions": additions,
         "deletions": deletions,
         "changed_files": changed_files,
+        "body": pr_data.get("body") or "",
+        "conversation": pr_data.get("conversation", []),
+        "comments_count": pr_data.get("comments_count", pr_data.get("_comments_count", len(comments))),
         "live": True,
     }
 
@@ -729,8 +789,8 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         elif isinstance(open_resp, dict) and open_resp.get("_rate_limit_exceeded"):
             rate_limited = True
 
-    # 3. Ensure at least 25 PRs: supplement with realistic simulated PRs if fewer than 25
-    if len(candidates) < 25:
+    # 3. Ensure at least 25 PRs: supplement with realistic simulated PRs only if unauthenticated & empty
+    if len(candidates) < 25 and not _resolve_github_token():
         sim_prs = _generate_simulated_prs(owner, repo, count=28)
         for sp in sim_prs:
             if sp["number"] not in seen_numbers:
@@ -747,21 +807,19 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
     count_30_days = sum(1 for c in candidates if _is_within_30_days(c.get("created_at") or c.get("updated_at")))
     target_scored_count = max(25, count_30_days)
 
-    all_prs: list[dict] = []
-
-    # 6. Process each PR
-    for idx, pr in enumerate(candidates[:limit]):
+    # 6. Process candidate PRs in parallel for ultra-fast response
+    def _process_candidate(item):
+        idx, pr = item
         num = pr.get("number")
         if not num:
-            continue
+            return None
 
-        # Check if in initial window to score
         if idx < target_scored_count:
-            full_pr = pr
+            full_pr = dict(pr)
             if not rate_limited and "additions" not in pr:
                 single_detail = _github_get(f"{base}/pulls/{num}")
                 if isinstance(single_detail, dict) and not single_detail.get("_rate_limit_exceeded"):
-                    full_pr = single_detail
+                    full_pr.update(single_detail)
 
             full_pr["_repo"] = full_repo_name
 
@@ -777,9 +835,8 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
 
             scored_item = _score_pr_heuristic(full_pr, reviews, comments)
             scored_item["scored"] = True
-            all_prs.append(scored_item)
+            return scored_item
         else:
-            # Older PR beyond initial window: cataloged as unscored for on-demand analysis
             total_lines = pr.get("additions", 0) + pr.get("deletions", 0) or 150
             unscored_item = {
                 "pr_key": f"{full_repo_name}#{num}",
@@ -807,7 +864,11 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
                 "explanation": "Older pull request cataloged for on-demand analysis.",
             }
             _cache_scored_pr(unscored_item)
-            all_prs.append(unscored_item)
+            return unscored_item
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        all_prs = [p for p in pool.map(_process_candidate, enumerate(candidates[:limit])) if p is not None]
+
 
     # Sort so scored PRs are ordered descending by residual risk, followed by unscored older PRs
     scored_prs = [p for p in all_prs if p.get("scored") and p.get("residual_risk") is not None]
@@ -1552,11 +1613,135 @@ def clear_repos_api():
 
 
 def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict | None, int]:
-    """Finds a PR from repo-scoped cache, demo catalog, or fetches dynamically from GitHub."""
+    """Finds a PR from live GitHub (with complete conversation, reviews, diffs), or cached/demo catalog."""
     full_repo = f"{org}/{repo_name}"
     full_repo_lower = full_repo.lower()
 
-    # 1. Check repo-scoped in-memory cache
+    # 1. First, attempt live fetch directly from GitHub API (the authoritative source)
+    base = f"https://api.github.com/repos/{full_repo}"
+    pr_data = _github_get(f"{base}/pulls/{pr_number}")
+    if isinstance(pr_data, dict) and "number" in pr_data and not pr_data.get("_rate_limit_exceeded"):
+        pr_data["_repo"] = full_repo
+
+        # Fetch conversation components in parallel
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_ic = ex.submit(_github_get, f"{base}/issues/{pr_number}/comments")
+            f_rc = ex.submit(_github_get, f"{base}/pulls/{pr_number}/comments")
+            f_rv = ex.submit(_github_get, f"{base}/pulls/{pr_number}/reviews")
+            
+            issue_comments = f_ic.result() or []
+            review_comments = f_rc.result() or []
+            reviews = f_rv.result() or []
+
+        if isinstance(issue_comments, dict):
+            issue_comments = []
+        if isinstance(review_comments, dict):
+            review_comments = []
+        if isinstance(reviews, dict):
+            reviews = []
+
+        # Build chronological conversation timeline
+        author_login = (pr_data.get("user") or {}).get("login", "author")
+        author_avatar = (pr_data.get("user") or {}).get("avatar_url") or f"https://github.com/{author_login}.png"
+        pr_body = (pr_data.get("body") or "").strip()
+
+        conversation = []
+        # Initial PR description by author
+        conversation.append({
+            "type": "description",
+            "user": {
+                "login": author_login,
+                "avatar_url": author_avatar,
+                "html_url": f"https://github.com/{author_login}",
+            },
+            "body": pr_body or "No description provided by author.",
+            "created_at": pr_data.get("created_at"),
+            "role_badge": "Author",
+            "is_author": True,
+        })
+
+        # Discussion comments on the PR issue
+        for ic in issue_comments:
+            if not isinstance(ic, dict) or not ic.get("body"):
+                continue
+            u = ic.get("user") or {}
+            login = u.get("login", "unknown")
+            is_auth = (login == author_login)
+            is_bot = (u.get("type") == "Bot" or "[bot]" in login.lower() or login.endswith("-bot"))
+            badge = "Author" if is_auth else ("Bot" if is_bot else "Contributor")
+            conversation.append({
+                "type": "comment",
+                "user": {
+                    "login": login,
+                    "avatar_url": u.get("avatar_url") or f"https://github.com/{login}.png",
+                    "html_url": u.get("html_url") or f"https://github.com/{login}",
+                },
+                "body": ic.get("body", "").strip(),
+                "created_at": ic.get("created_at"),
+                "role_badge": badge,
+                "is_author": is_auth,
+            })
+
+        # In-line code review comments
+        for rc in review_comments:
+            if not isinstance(rc, dict) or not rc.get("body"):
+                continue
+            u = rc.get("user") or {}
+            login = u.get("login", "unknown")
+            conversation.append({
+                "type": "review_comment",
+                "user": {
+                    "login": login,
+                    "avatar_url": u.get("avatar_url") or f"https://github.com/{login}.png",
+                    "html_url": u.get("html_url") or f"https://github.com/{login}",
+                },
+                "body": rc.get("body", "").strip(),
+                "path": rc.get("path"),
+                "line": rc.get("line") or rc.get("original_line"),
+                "diff_hunk": rc.get("diff_hunk"),
+                "created_at": rc.get("created_at"),
+                "role_badge": "Code Review",
+                "is_author": (login == author_login),
+            })
+
+        # Formal review submissions (Approvals / Changes Requested)
+        for rv in reviews:
+            if not isinstance(rv, dict):
+                continue
+            u = rv.get("user") or {}
+            login = u.get("login", "unknown")
+            rv_body = (rv.get("body") or "").strip()
+            state = (rv.get("state") or "COMMENTED").upper()
+            if rv_body or state in ("APPROVED", "CHANGES_REQUESTED"):
+                default_msg = "Approved these changes." if state == "APPROVED" else ("Requested changes." if state == "CHANGES_REQUESTED" else "Submitted a review.")
+                conversation.append({
+                    "type": "review",
+                    "user": {
+                        "login": login,
+                        "avatar_url": u.get("avatar_url") or f"https://github.com/{login}.png",
+                        "html_url": u.get("html_url") or f"https://github.com/{login}",
+                    },
+                    "body": rv_body or default_msg,
+                    "review_state": state,
+                    "created_at": rv.get("submitted_at") or rv.get("created_at") or pr_data.get("created_at"),
+                    "role_badge": "Reviewer",
+                    "is_author": False,
+                })
+
+        # Sort timeline chronologically (initial description remains first)
+        first_desc = conversation[0]
+        rest_sorted = sorted(conversation[1:], key=lambda x: x.get("created_at") or "")
+        full_conversation = [first_desc] + rest_sorted
+
+        scored = _score_pr_heuristic(pr_data, reviews, review_comments)
+        scored["body"] = pr_body
+        scored["conversation"] = full_conversation
+        scored["comments_count"] = len(issue_comments) + len(review_comments)
+        scored["pr_url"] = pr_data.get("html_url") or f"https://github.com/{full_repo}/pull/{pr_number}"
+        _cache_scored_pr(scored)
+        return scored, 200
+
+    # 2. Check repo-scoped in-memory cache if GitHub was not reachable
     for key in (
         f"{full_repo_lower}/{pr_number}",
         f"{full_repo_lower}#{pr_number}",
@@ -1568,109 +1753,64 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
             if cached_pr.get("scored") and cached_pr.get("residual_risk") is not None:
                 return cached_pr, 200
 
-    # 2. Check REPO_PRS_CACHE for this repository
-    existing_unscored = None
+    # 3. Check REPO_PRS_CACHE for this repository
     if full_repo_lower in REPO_PRS_CACHE:
         for p in REPO_PRS_CACHE[full_repo_lower]:
             if p.get("pr_number") == pr_number:
                 if p.get("scored") and p.get("residual_risk") is not None:
                     _cache_scored_pr(p)
                     return p, 200
-                existing_unscored = p
-                break
+                scored = _score_pr_heuristic(p)
+                scored["scored"] = True
+                _cache_scored_pr(scored)
+                return scored, 200
 
-    # If found in repo cache but unscored, score it now
-    if existing_unscored:
-        scored = _score_pr_heuristic(existing_unscored)
-        scored["scored"] = True
-        existing_unscored.update(scored)
-        _cache_scored_pr(scored)
-        return scored, 200
-
-    # 3. Check DEMO_PR_MAP only if it belongs to this repository
+    # 4. Check DEMO_PR_MAP only if it belongs to this repository
     if pr_number in DEMO_PR_MAP:
         demo_pr = DEMO_PR_MAP[pr_number]
         if demo_pr.get("repo", "").lower() == full_repo_lower:
             return demo_pr, 200
 
-    # 4. Live fetch from GitHub
-    base = f"https://api.github.com/repos/{full_repo}"
-    pr_data = _github_get(f"{base}/pulls/{pr_number}")
-    if isinstance(pr_data, dict) and "number" in pr_data and not pr_data.get("_rate_limit_exceeded"):
-        pr_data["_repo"] = full_repo
-        reviews = _github_get(f"{base}/pulls/{pr_number}/reviews") or []
-        if isinstance(reviews, dict):
-            reviews = []
-        comments = _github_get(f"{base}/pulls/{pr_number}/comments") or []
-        if isinstance(comments, dict):
-            comments = []
-        scored = _score_pr_heuristic(pr_data, reviews, comments)
-        _cache_scored_pr(scored)
-        return scored, 200
+    # 5. Check if this PR number exists in REPO_SPECIFIC_PR_SPECS (only when offline/rate-limited)
+    if not _resolve_github_token():
+        spec = REPO_SPECIFIC_PR_SPECS.get(full_repo_lower)
+        if not spec:
+            for k, v in REPO_SPECIFIC_PR_SPECS.items():
+                if k.split("/")[1] == repo_name.lower():
+                    spec = v
+                    break
 
-    # 5. Check if this PR number exists in REPO_SPECIFIC_PR_SPECS for this repository
-    spec = REPO_SPECIFIC_PR_SPECS.get(full_repo_lower)
-    if not spec:
-        for k, v in REPO_SPECIFIC_PR_SPECS.items():
-            if k.split("/")[1] == repo_name.lower():
-                spec = v
-                break
+        if spec:
+            base_num = spec["base_num"]
+            idx = pr_number - base_num - 1
+            if 0 <= idx < len(spec["items"]):
+                title, path, state, days_ago, adds, dels, author, reviewer, profile, comments_cnt, dur_secs = spec["items"][idx]
+                created_dt = datetime.now(timezone.utc) - timedelta(days=days_ago)
+                merged_dt = created_dt + timedelta(seconds=dur_secs) if state == "closed" else None
+                sim_pr = {
+                    "number": pr_number,
+                    "title": title,
+                    "user": {"login": author},
+                    "reviewer": reviewer,
+                    "state": state,
+                    "created_at": created_dt.isoformat(),
+                    "merged_at": merged_dt.isoformat() if merged_dt else None,
+                    "additions": adds,
+                    "deletions": dels,
+                    "changed_files": max(1, (adds + dels) // 80),
+                    "_files": [{"filename": path}],
+                    "html_url": f"https://github.com/{full_repo}/pull/{pr_number}",
+                    "_repo": full_repo,
+                    "_sim_profile": profile,
+                    "_sim_reviewer": reviewer,
+                    "_duration_secs": dur_secs,
+                    "_comments_count": comments_cnt,
+                }
+                scored = _score_pr_heuristic(sim_pr)
+                _cache_scored_pr(scored)
+                return scored, 200
 
-    if spec:
-        base_num = spec["base_num"]
-        idx = pr_number - base_num - 1
-        if 0 <= idx < len(spec["items"]):
-            title, path, state, days_ago, adds, dels, author, reviewer, profile, comments_cnt, dur_secs = spec["items"][idx]
-            created_dt = datetime.now(timezone.utc) - timedelta(days=days_ago)
-            merged_dt = created_dt + timedelta(seconds=dur_secs) if state == "closed" else None
-            sim_pr = {
-                "number": pr_number,
-                "title": title,
-                "user": {"login": author},
-                "reviewer": reviewer,
-                "state": state,
-                "created_at": created_dt.isoformat(),
-                "merged_at": merged_dt.isoformat() if merged_dt else None,
-                "additions": adds,
-                "deletions": dels,
-                "changed_files": max(1, (adds + dels) // 80),
-                "_files": [{"filename": path}],
-                "html_url": f"https://github.com/{full_repo}/pull/{pr_number}",
-                "_repo": full_repo,
-                "_sim_profile": profile,
-                "_sim_reviewer": reviewer,
-                "_duration_secs": dur_secs,
-                "_comments_count": comments_cnt,
-            }
-            scored = _score_pr_heuristic(sim_pr)
-            _cache_scored_pr(scored)
-            return scored, 200
-
-    # 6. Fallback synthesis tailored to this specific repository
-    ext = ".py" if any(p in repo_name.lower() for p in ("py", "flask", "django", "fast")) else (
-        ".ts" if any(p in repo_name.lower() for p in ("js", "react", "vue", "node")) else ".go"
-    )
-    sim_pr = {
-        "number": pr_number,
-        "title": f"Update and optimize core subsystem in {repo_name} (#{pr_number})",
-        "user": {"login": "contributor"},
-        "reviewer": "maintainer",
-        "state": "open",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "merged_at": None,
-        "additions": 280,
-        "deletions": 65,
-        "changed_files": 4,
-        "_files": [{"filename": f"src/{repo_name}/core{ext}"}],
-        "html_url": f"https://github.com/{full_repo}/pull/{pr_number}",
-        "_repo": full_repo,
-        "_sim_profile": "medium",
-        "_duration_secs": 1800,
-        "_comments_count": 2,
-    }
-    scored = _score_pr_heuristic(sim_pr)
-    _cache_scored_pr(scored)
-    return scored, 200
+    return None, 404
 
 
 @app.route("/pr/<org>/<repo_name>/<int:pr_number>")
@@ -1962,6 +2102,44 @@ def fmt_date_filter(value):
         return dt.strftime("%b %d, %Y %H:%M UTC")
     except Exception:
         return value
+
+
+@app.template_filter("fmt_markdown")
+def fmt_markdown_filter(text):
+    if not text:
+        return Markup('<span style="color:var(--color-fg-muted); font-style:italic;">No description provided.</span>')
+
+    escaped = html.escape(str(text))
+    code_blocks = []
+
+    def _save_code_block(match):
+        code = match.group(1)
+        idx = len(code_blocks)
+        code_blocks.append(f'<pre class="gh-code-block"><code>{code}</code></pre>')
+        return f'___CODE_BLOCK_{idx}___'
+
+    escaped = re.sub(r'```(?:\w*)\r?\n([\s\S]*?)```', _save_code_block, escaped)
+    escaped = re.sub(r'`([^`]+)`', r'<code class="gh-inline-code">\1</code>', escaped)
+    escaped = re.sub(r'(?m)^####\s+(.+)$', r'<h4 class="gh-md-h4">\1</h4>', escaped)
+    escaped = re.sub(r'(?m)^###\s+(.+)$', r'<h3 class="gh-md-h3">\1</h3>', escaped)
+    escaped = re.sub(r'(?m)^##\s+(.+)$', r'<h2 class="gh-md-h2">\1</h2>', escaped)
+    escaped = re.sub(r'(?m)^#\s+(.+)$', r'<h1 class="gh-md-h1">\1</h1>', escaped)
+    escaped = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', escaped)
+    escaped = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', escaped)
+    escaped = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'<a href="\2" target="_blank" rel="noopener noreferrer" class="gh-md-link">\1</a>', escaped)
+    escaped = re.sub(r'(?<!href=")(?<!">)(https?://[^\s<]+)', r'<a href="\1" target="_blank" rel="noopener noreferrer" class="gh-md-link">\1</a>', escaped)
+    escaped = re.sub(r'(?m)^&gt;\s+(.+)$', r'<blockquote class="gh-md-quote">\1</blockquote>', escaped)
+    escaped = re.sub(r'(?m)^[-*]\s+\[ \]\s+(.+)$', r'<li class="gh-task-item"><input type="checkbox" disabled /> \1</li>', escaped)
+    escaped = re.sub(r'(?m)^[-*]\s+\[x\]\s+(.+)$', r'<li class="gh-task-item"><input type="checkbox" checked disabled /> \1</li>', escaped)
+    escaped = re.sub(r'(?m)^[-*]\s+(.+)$', r'<li class="gh-md-li">\1</li>', escaped)
+    escaped = escaped.replace("\r\n", "\n")
+    escaped = re.sub(r'\n{2,}', '</p><p>', escaped)
+    escaped = escaped.replace("\n", "<br>")
+
+    for idx, block in enumerate(code_blocks):
+        escaped = escaped.replace(f'___CODE_BLOCK_{idx}___', block)
+
+    return Markup(f'<div class="gh-md-content"><p>{escaped}</p></div>')
 
 
 if __name__ == "__main__":
