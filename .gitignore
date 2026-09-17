@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# AWS SAM / CDK
+.aws-sam/
+samconfig.toml
+cdk.out/
+cdk.context.json
+
+# Model artifacts & data
+*.tar.gz
+*.parquet
+*.pkl
+*.joblib
+*.pt
+*.pth
+models/risk/output/
+models/depth/output/
+models/attention/output/
+data/
+
+# Environment files
+.env
+.env.*
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Node (dashboard)
+node_modules/
+dist/
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
