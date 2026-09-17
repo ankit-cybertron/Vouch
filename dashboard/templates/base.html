@@ -49,8 +49,30 @@
       </div>
 
       <div class="gh-nav-right">
-        <span class="status-dot"></span>
-        <span style="font-size:12px; color:var(--color-fg-muted); font-weight:500;">Live Analysis Engine</span>
+        {% if auth and auth.is_authenticated %}
+        <div class="gh-auth-user" style="display:flex; align-items:center; gap:8px;">
+          {% if auth.user_avatar %}
+          <img src="{{ auth.user_avatar }}" class="gh-avatar" alt="{{ auth.user_login }}" style="width:24px; height:24px;" />
+          {% endif %}
+          <span style="font-size:13px; font-weight:600; color:var(--color-fg-default);">@{{ auth.user_login }}</span>
+          {% if auth.rate_limit and auth.rate_limit.remaining is defined %}
+          <span class="gh-label gh-label-confidence" title="Remaining GitHub API quota">{{ auth.rate_limit.remaining }} / {{ auth.rate_limit.limit }} reqs</span>
+          {% else %}
+          <span class="gh-label gh-label-confidence">{{ auth.auth_type | upper }}</span>
+          {% endif %}
+          <a href="/auth/logout" class="gh-btn gh-btn-sm" style="color:var(--color-danger-fg); padding:2px 8px;" title="Disconnect token / sign out">Sign out</a>
+        </div>
+        {% else %}
+        <div class="gh-auth-demo" style="display:flex; align-items:center; gap:8px;">
+          <span class="gh-label" style="background:var(--color-attention-subtle); color:var(--color-attention-fg); border:1px solid #d4a72c66; font-size:11px;">
+            Demo Mode
+          </span>
+          <button type="button" class="gh-btn gh-btn-sm" id="nav-connect-btn" onclick="openConnectTokenModal()" style="display:inline-flex; align-items:center; gap:5px;">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>
+            Connect GitHub
+          </button>
+        </div>
+        {% endif %}
       </div>
     </div>
   </nav>
@@ -71,6 +93,60 @@
       </div>
     </div>
   </footer>
+
+  <!-- ── Option 4: Connect GitHub Personal Access Token Modal ────── -->
+  <div class="gh-modal-backdrop" id="connect-token-modal" style="display:none;" onclick="if(event.target===this) closeConnectTokenModal()">
+    <div class="gh-modal" style="max-width: 520px;">
+      <div class="gh-modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-accent-fg);"><path d="M6.5 5.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm1.414.5a3.5 3.5 0 1 0-4.95 2.95l-.757.757a.75.75 0 0 0 0 1.06l1.5 1.5a.75.75 0 0 0 1.06 0L5.5 11.5l1.293-1.293a3.5 3.5 0 0 0 1.121-4.207ZM11.75 9a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 .75-.75Zm3.25.75a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 0 1.5 0v-2.5Z"></path></svg>
+          <strong style="font-size:15px;">Connect GitHub Account / Token (Option 4)</strong>
+        </div>
+        <button type="button" class="gh-modal-close-btn" onclick="closeConnectTokenModal()" aria-label="Close dialog">&times;</button>
+      </div>
+
+      <div class="gh-modal-body" style="padding: 20px;">
+        <p style="font-size:13px; color:var(--color-fg-muted); margin-bottom:14px; line-height:1.5;">
+          Connect your GitHub Personal Access Token to get your own <strong>5,000 requests/hour</strong> quota and score private or organizational repositories without sharing credentials.
+        </p>
+
+        <form id="connect-token-form" onsubmit="handleTokenSubmit(event)">
+          <div style="margin-bottom:14px;">
+            <label for="user-github-token" style="display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:var(--color-fg-default);">
+              Personal Access Token (classic or fine-grained)
+            </label>
+            <input
+              type="password"
+              id="user-github-token"
+              class="gh-filter-input"
+              style="width:100%; border:1px solid var(--color-border-default); border-radius:6px; padding:8px 12px; font-family:ui-monospace, monospace; font-size:13px; background:var(--color-canvas-default);"
+              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx or gho_xxxx"
+              autocomplete="off"
+              required
+            />
+            <div style="font-size:11.5px; color:var(--color-fg-muted); margin-top:4px;">
+              Don't have a token? <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">Generate one on GitHub</a> (no scopes required for public repos).
+            </div>
+          </div>
+
+          <div id="token-error-msg" style="display:none; padding:8px 12px; background:var(--color-danger-subtle); color:var(--color-danger-fg); border:1px solid #ff818266; border-radius:6px; font-size:12px; margin-bottom:12px;"></div>
+          <div id="token-success-msg" style="display:none; padding:8px 12px; background:var(--color-success-subtle); color:var(--color-success-fg); border:1px solid #4ac26b66; border-radius:6px; font-size:12px; margin-bottom:12px;"></div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px;">
+            <button type="button" class="gh-btn gh-btn-sm" onclick="closeConnectTokenModal()">Cancel</button>
+            <div style="display:flex; align-items:center; gap:8px;">
+              {% if auth and auth.is_authenticated %}
+              <button type="button" class="gh-btn gh-btn-sm" style="color:var(--color-danger-fg);" onclick="handleTokenClear()">Disconnect</button>
+              {% endif %}
+              <button type="submit" class="gh-btn gh-btn-sm gh-btn-primary" id="save-token-btn">
+                Validate &amp; Connect
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   {% block scripts %}{% endblock %}

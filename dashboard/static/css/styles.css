@@ -1135,6 +1135,271 @@ a:hover {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   VOUCH LANDING PAGE & AUTHENTICATION STYLING
+   ═══════════════════════════════════════════════════════════ */
+
+.gh-landing-hero {
+  text-align: center;
+  padding: 48px 20px 40px;
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.gh-hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+  background-color: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  border-radius: 2em;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-fg-muted);
+  margin-bottom: 20px;
+}
+
+.gh-hero-title {
+  font-size: clamp(28px, 4.5vw, 44px);
+  font-weight: 700;
+  color: var(--color-fg-default);
+  line-height: 1.18;
+  letter-spacing: -0.6px;
+  margin-bottom: 16px;
+}
+
+.gh-hero-subtitle {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-fg-muted);
+  max-width: 720px;
+  margin: 0 auto 28px;
+}
+
+.gh-hero-ctas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.gh-btn-hero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 22px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.gh-btn-hero-primary {
+  background-color: #24292f;
+  color: #ffffff;
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1);
+}
+.gh-btn-hero-primary:hover {
+  background-color: #1f2328;
+  color: #ffffff;
+  text-decoration: none;
+  box-shadow: 0 2px 4px rgba(27, 31, 36, 0.15);
+}
+
+.gh-btn-hero-secondary {
+  background-color: var(--color-canvas-subtle);
+  color: var(--color-fg-default);
+  border: 1px solid var(--color-border-default);
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
+}
+.gh-btn-hero-secondary:hover {
+  background-color: #eaeef2;
+  text-decoration: none;
+}
+
+.gh-hero-subtext {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+
+/* ── Formula Banner ─────────────────────────────────────────── */
+.gh-formula-banner {
+  background: linear-gradient(180deg, #f6f8fa 0%, #ffffff 100%);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  margin: 16px auto 44px;
+  max-width: 860px;
+}
+
+.gh-formula-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-accent-fg);
+  background-color: var(--color-accent-subtle);
+  padding: 3px 10px;
+  border-radius: 2em;
+  margin-bottom: 12px;
+}
+
+.gh-formula-equation {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: clamp(16px, 3vw, 24px);
+  font-weight: 700;
+  color: var(--color-fg-default);
+  margin-bottom: 10px;
+}
+
+.gh-var-risk { color: var(--color-danger-fg); }
+.gh-var-change { color: var(--color-attention-fg); }
+.gh-var-conf { color: var(--color-success-fg); }
+
+.gh-formula-caption {
+  font-size: 13px;
+  color: var(--color-fg-muted);
+  max-width: 680px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* ── 3-Model Architecture Grid ──────────────────────────────── */
+.gh-architecture-section {
+  margin-bottom: 48px;
+}
+
+.gh-section-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.gh-section-sub {
+  font-size: 14px;
+  color: var(--color-fg-muted);
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto 28px;
+}
+
+.gh-model-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.gh-model-card {
+  background-color: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.gh-model-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-accent-fg);
+  box-shadow: 0 4px 12px rgba(140, 149, 159, 0.12);
+}
+
+.gh-model-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.gh-model-number {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-fg-subtle);
+}
+
+.gh-model-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 2em;
+  background-color: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  color: var(--color-fg-muted);
+}
+
+.gh-model-name {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+  margin-bottom: 8px;
+}
+
+.gh-model-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-fg-muted);
+  margin-bottom: 16px;
+  flex: 1;
+}
+
+.gh-model-features {
+  list-style: none;
+  border-top: 1px solid var(--color-border-muted);
+  padding-top: 12px;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gh-model-features strong {
+  color: var(--color-fg-default);
+}
+
+/* ── Choice Cards (Inside Demo Choice Modal) ─────────────────── */
+.gh-choice-card {
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background-color: var(--color-canvas-default);
+}
+
+.gh-choice-card:hover {
+  border-color: var(--color-accent-fg);
+  background-color: var(--color-canvas-subtle);
+  box-shadow: 0 2px 8px rgba(9, 105, 218, 0.08);
+}
+
+.gh-choice-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
    COMPREHENSIVE RESPONSIVE DESIGN SYSTEM
    Fluid scaling across Ultra-Wide, Desktop, Tablet & Mobile
    ═══════════════════════════════════════════════════════════ */

@@ -669,3 +669,86 @@
   }
 
 })();
+
+// ── Option 4: In-App UI GitHub Token Handlers ──────────────────
+window.openConnectTokenModal = function () {
+  const modal = document.getElementById('connect-token-modal');
+  if (modal) modal.style.display = 'flex';
+  const inp = document.getElementById('user-github-token');
+  if (inp) {
+    inp.value = '';
+    inp.focus();
+  }
+  const err = document.getElementById('token-error-msg');
+  if (err) err.style.display = 'none';
+  const succ = document.getElementById('token-success-msg');
+  if (succ) succ.style.display = 'none';
+};
+
+window.closeConnectTokenModal = function () {
+  const modal = document.getElementById('connect-token-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.handleTokenSubmit = async function (e) {
+  e.preventDefault();
+  const inp = document.getElementById('user-github-token');
+  const btn = document.getElementById('save-token-btn');
+  const err = document.getElementById('token-error-msg');
+  const succ = document.getElementById('token-success-msg');
+  if (!inp || !btn) return;
+
+  const token = inp.value.trim();
+  if (!token) return;
+
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = 'Validating…';
+  if (err) err.style.display = 'none';
+  if (succ) succ.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (err) {
+        err.textContent = data.error || 'Failed to connect token. Please check validity.';
+        err.style.display = 'block';
+      }
+      btn.disabled = false;
+      btn.textContent = origText;
+      return;
+    }
+
+    if (succ) {
+      succ.textContent = `Connected as @${data.user.login}! Quota: ${data.rate_limit.remaining} reqs. Reloading…`;
+      succ.style.display = 'block';
+    }
+
+    setTimeout(() => {
+      window.location.reload();
+    }, 800);
+  } catch (ex) {
+    if (err) {
+      err.textContent = 'Network error: ' + ex.message;
+      err.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+};
+
+window.handleTokenClear = async function () {
+  if (!confirm('Disconnect your GitHub token and switch back to Demo Mode?')) return;
+  try {
+    await fetch('/api/auth/clear-token', { method: 'POST' });
+    window.location.reload();
+  } catch (e) {
+    window.location.reload();
+  }
+};
+

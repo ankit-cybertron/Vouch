@@ -16,13 +16,23 @@ import html
 import math
 import os
 import re
+import secrets
 import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 
 from markupsafe import Markup
 import requests
-from flask import Flask, jsonify, render_template, request, redirect
+from flask import (
+    Flask,
+    jsonify,
+    render_template,
+    request,
+    redirect,
+    session,
+    url_for,
+    has_request_context,
+)
 
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(
@@ -35,7 +45,21 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 
 def _resolve_github_token() -> str:
-    """Dynamically resolve GitHub personal access token with maximum resilience."""
+    """Dynamically resolve GitHub token with maximum resilience.
+    Priority order:
+      1. User's active session token (from OAuth login or Option 4 token modal)
+      2. Server GITHUB_TOKEN environment variable
+      3. .env file
+      4. git credential helper
+    """
+    try:
+        if has_request_context() and session.get("github_token"):
+            tok = str(session["github_token"]).strip()
+            if tok:
+                return tok
+    except Exception:
+        pass
+
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if token:
         return token
@@ -1457,22 +1481,54 @@ VALIDATION_STATS = {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Routes
+# Routes & Auth State
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.context_processor
 def inject_global_vars():
+    token = session.get("github_token", "")
+    auth_info = {
+        "is_authenticated": bool(token),
+        "auth_type": session.get("auth_type", "demo" if not token else "token"),
+        "user_login": session.get("user_login", ""),
+        "user_name": session.get("user_name", session.get("user_login", "")),
+        "user_avatar": session.get("user_avatar", ""),
+        "rate_limit": session.get("rate_limit", {}),
+    }
     return {
         "repos_count": len(FETCHED_REPOS),
         "all_repos": list(FETCHED_REPOS.values()),
+        "auth": auth_info,
     }
 
 
 @app.route("/")
+def landing_page():
+    """Main Landing Page introducing Vouch, with OAuth & Demo mode entry points."""
+    # If a repo query param was provided directly to root, route to that repo
+    repo_arg = request.args.get("repo", "").strip()
+    if repo_arg:
+        parsed = _parse_repo_input(repo_arg)
+        if parsed:
+            return repo_view(parsed[0], parsed[1])
+
+    sample_repos = list(FETCHED_REPOS.values())[:6]
+    client_id = os.environ.get("GITHUB_CLIENT_ID", "").strip()
+    oauth_setup = request.args.get("oauth_setup") == "1"
+    error = request.args.get("error")
+
+    return render_template(
+        "landing.html",
+        sample_repos=sample_repos,
+        has_oauth=bool(client_id),
+        oauth_setup=oauth_setup,
+        error=error,
+    )
+
+
 @app.route("/repos")
 def repos_page():
     """Repositories catalog page — displays all fetched repositories with '+' fetch option."""
-    # If a repo query param was provided directly to root, show that repo
     repo_arg = request.args.get("repo", "").strip()
     if repo_arg:
         parsed = _parse_repo_input(repo_arg)
@@ -1494,6 +1550,193 @@ def repos_page():
         repos=repos_list,
         search=search,
     )
+
+
+# ── GitHub OAuth Authentication Routes ─────────────────────────
+@app.route("/auth/github")
+def auth_github():
+    """Initiate GitHub OAuth 2.0 flow."""
+    client_id = os.environ.get("GITHUB_CLIENT_ID", "").strip()
+    if not client_id:
+        return redirect(url_for("landing_page", oauth_setup="1"))
+
+    state = secrets.token_urlsafe(16)
+    session["oauth_state"] = state
+    redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+    scope = "read:user,repo"
+    github_auth_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={client_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&scope={scope}"
+        f"&state={state}"
+    )
+    return redirect(github_auth_url)
+
+
+@app.route("/auth/github/callback")
+def auth_github_callback():
+    """GitHub OAuth 2.0 callback endpoint."""
+    code = request.args.get("code")
+    state = request.args.get("state")
+    saved_state = session.pop("oauth_state", None)
+
+    if not code or state != saved_state:
+        return redirect(url_for("landing_page", error="OAuth state validation failed. Please try again."))
+
+    client_id = os.environ.get("GITHUB_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
+
+    try:
+        token_resp = requests.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+            },
+            timeout=10,
+        )
+        if token_resp.status_code != 200:
+            return redirect(url_for("landing_page", error="Failed to exchange authorization code with GitHub."))
+
+        token_data = token_resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            err_desc = token_data.get("error_description", "GitHub did not return an access token.")
+            return redirect(url_for("landing_page", error=err_desc))
+
+        user_resp = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=10,
+        )
+        user_data = user_resp.json() if user_resp.status_code == 200 else {}
+
+        rate_resp = requests.get(
+            "https://api.github.com/rate_limit",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=10,
+        )
+        rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
+
+        session["github_token"] = access_token
+        session["user_login"] = user_data.get("login", "github_user")
+        session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
+        session["user_avatar"] = user_data.get("avatar_url", "")
+        session["auth_type"] = "oauth"
+        session["rate_limit"] = {
+            "limit": rate_data.get("limit", 5000),
+            "remaining": rate_data.get("remaining", 5000),
+        }
+
+        return redirect(url_for("repos_page"))
+    except Exception as exc:
+        return redirect(url_for("landing_page", error=f"OAuth connection error: {str(exc)}"))
+
+
+@app.route("/auth/logout")
+def auth_logout():
+    """Clear user session and return to landing page."""
+    session.pop("github_token", None)
+    session.pop("user_login", None)
+    session.pop("user_name", None)
+    session.pop("user_avatar", None)
+    session.pop("auth_type", None)
+    session.pop("rate_limit", None)
+    return redirect(url_for("landing_page"))
+
+
+# ── Option 4: In-App UI Personal Token API ─────────────────────
+@app.route("/api/auth/token", methods=["POST"])
+def api_save_token():
+    """Option 4: In-App UI Personal Access Token submission."""
+    payload = request.get_json(silent=True) or {}
+    raw_token = payload.get("token", "").strip()
+    if not raw_token:
+        return jsonify({"success": False, "error": "Token cannot be empty"}), 400
+
+    try:
+        user_resp = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {raw_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=8,
+        )
+        if user_resp.status_code != 200:
+            return jsonify({
+                "success": False,
+                "error": "Invalid GitHub token. GitHub rejected the token (HTTP 401). Please verify permissions."
+            }), 400
+
+        user_data = user_resp.json()
+        rate_resp = requests.get(
+            "https://api.github.com/rate_limit",
+            headers={
+                "Authorization": f"Bearer {raw_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=8,
+        )
+        rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
+
+        session["github_token"] = raw_token
+        session["user_login"] = user_data.get("login", "github_user")
+        session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
+        session["user_avatar"] = user_data.get("avatar_url", "")
+        session["auth_type"] = "token"
+        session["rate_limit"] = {
+            "limit": rate_data.get("limit", 5000),
+            "remaining": rate_data.get("remaining", 5000),
+        }
+
+        return jsonify({
+            "success": True,
+            "message": f"Connected as @{session['user_login']}",
+            "user": {
+                "login": session["user_login"],
+                "name": session["user_name"],
+                "avatar_url": session["user_avatar"],
+            },
+            "rate_limit": session["rate_limit"],
+        })
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Connection error: {str(exc)}"}), 500
+
+
+@app.route("/api/auth/clear-token", methods=["POST"])
+def api_clear_token():
+    """Reset session to default demo mode."""
+    session.pop("github_token", None)
+    session.pop("user_login", None)
+    session.pop("user_name", None)
+    session.pop("user_avatar", None)
+    session.pop("auth_type", None)
+    session.pop("rate_limit", None)
+    return jsonify({"success": True, "message": "Reset to Demo Mode"})
+
+
+@app.route("/api/auth/status", methods=["GET"])
+def api_auth_status():
+    """Return current session auth state."""
+    token = session.get("github_token")
+    return jsonify({
+        "authenticated": bool(token),
+        "auth_type": session.get("auth_type", "demo" if not token else "token"),
+        "user_login": session.get("user_login", ""),
+        "user_name": session.get("user_name", ""),
+        "user_avatar": session.get("user_avatar", ""),
+        "rate_limit": session.get("rate_limit", {}),
+    })
 
 
 @app.route("/repo/<owner>/<repo_name>")

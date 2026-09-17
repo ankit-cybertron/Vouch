@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}Vouch · ML Review Intelligence &amp; Risk-Aware Re-queuing{% endblock %}
+{% block meta_description %}Vouch: Multi-model machine learning code review intelligence, change risk scoring, and superficial review detection on GitHub pull requests.{% endblock %}
+
+{% block content %}
+
+<!-- ── Hero Banner Section ──────────────────────────────────── -->
+<div class="gh-landing-hero">
+  <div class="gh-hero-pill">
+    <span class="status-dot"></span>
+    <span>Production-Grade Multi-Model AI Engine</span>
+  </div>
+
+  <h1 class="gh-hero-title">
+    Calibrated Pull Request Risk Intelligence
+  </h1>
+
+  <p class="gh-hero-subtitle">
+    Prevent defective code merges and detect shallow rubber-stamp approvals before production rollout.
+    Scored strictly at merge time using XGBoost change risk, DistilBERT review depth, and Bayesian reviewer attention models.
+  </p>
+
+  <!-- Dual Primary CTAs -->
+  <div class="gh-hero-ctas">
+    {% if has_oauth %}
+    <a href="/auth/github" class="gh-btn-hero gh-btn-hero-primary" id="landing-oauth-btn">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+      </svg>
+      <span>Sign in with GitHub (OAuth)</span>
+    </a>
+    {% else %}
+    <button type="button" class="gh-btn-hero gh-btn-hero-primary" id="landing-oauth-btn" onclick="openOAuthSetupModal()">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+      </svg>
+      <span>Sign in with GitHub (OAuth)</span>
+    </button>
+    {% endif %}
+
+    <button type="button" class="gh-btn-hero gh-btn-hero-secondary" id="landing-demo-btn" onclick="openDemoChoiceModal()">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"></path>
+      </svg>
+      <span>Explore Demo Mode</span>
+    </button>
+  </div>
+
+  <div class="gh-hero-subtext">
+    <span>Instant access · 5,000 requests/hr rate limit · Zero configuration required for demo</span>
+  </div>
+</div>
+
+<!-- ── Formula Callout Card ──────────────────────────────────── -->
+<div class="gh-formula-banner">
+  <div class="gh-formula-badge">Vouch Mathematical Invariant</div>
+  <div class="gh-formula-equation">
+    <span class="gh-var-risk">residual_risk</span> = <span class="gh-var-change">change_risk</span> × (1 − <span class="gh-var-conf">review_confidence</span>)
+  </div>
+  <p class="gh-formula-caption">
+    High change risk alone does not mandate re-queuing if senior review depth is thorough. A pull request is re-queued only when residual risk exceeds calibrated safety thresholds (≥ 0.65).
+  </p>
+</div>
+
+<!-- ── 3-Model Architecture Cards ────────────────────────────── -->
+<div class="gh-architecture-section">
+  <h2 class="gh-section-title">The Three-Model Ensemble Architecture</h2>
+  <p class="gh-section-sub">Scored continuously as pull requests evolve, aggregating signals from Git diffs, conversation timelines, and reviewer session states.</p>
+
+  <div class="gh-model-cards-grid">
+    <!-- Model 1 -->
+    <div class="gh-model-card">
+      <div class="gh-model-header">
+        <span class="gh-model-number">01</span>
+        <span class="gh-model-tag">XGBoost Classifier</span>
+      </div>
+      <h3 class="gh-model-name">Change Risk Model</h3>
+      <p class="gh-model-desc">
+        Computes the intrinsic defect probability of the code change based on diff volume, file churn, deletion ratios, and historical author defect density.
+      </p>
+      <ul class="gh-model-features">
+        <li><strong>Lines Changed:</strong> Additions vs deletions entropy</li>
+        <li><strong>Sensitive Paths:</strong> Auth, crypto, payments, infra</li>
+        <li><strong>File Dispersal:</strong> Cross-module entanglement index</li>
+      </ul>
+    </div>
+
+    <!-- Model 2 -->
+    <div class="gh-model-card">
+      <div class="gh-model-header">
+        <span class="gh-model-number">02</span>
+        <span class="gh-model-tag">DistilBERT NLP</span>
+      </div>
+      <h3 class="gh-model-name">Review Depth Model</h3>
+      <p class="gh-model-desc">
+        Evaluates the qualitative thoroughness of reviewer comments, distinguishing substantive architecture critiques from trivial stylistic nits or instant approvals.
+      </p>
+      <ul class="gh-model-features">
+        <li><strong>Substantive Dialogue:</strong> Semantic inquiry scoring</li>
+        <li><strong>Code-Level Review:</strong> Inline hunk discussion density</li>
+        <li><strong>Superficial Rejection:</strong> Flags fast "LGTM" rubber stamps</li>
+      </ul>
+    </div>
+
+    <!-- Model 3 -->
+    <div class="gh-model-card">
+      <div class="gh-model-header">
+        <span class="gh-model-number">03</span>
+        <span class="gh-model-tag">Bayesian Attention</span>
+      </div>
+      <h3 class="gh-model-name">Reviewer Attention Model</h3>
+      <p class="gh-model-desc">
+        Models reviewer cognitive load, fatigue, session duration, and prior domain familiarity to determine if reviewers had adequate attention bandwidth.
+      </p>
+      <ul class="gh-model-features">
+        <li><strong>Session Duration:</strong> Time elapsed vs diff magnitude</li>
+        <li><strong>Concurrent Load:</strong> Simultaneous open reviews</li>
+        <li><strong>Module Familiarity:</strong> Historic commit authorship in path</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ── Sample Monitored Repositories ────────────────────────── -->
+<div class="gh-landing-repos-section">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+    <div>
+      <h2 class="gh-section-title" style="margin-bottom:4px;">Monitored Repositories in Demo Pool</h2>
+      <p class="gh-section-sub" style="margin-bottom:0;">Explore scored pull requests from popular open-source repositories immediately.</p>
+    </div>
+    <a href="/repos" class="gh-btn" style="display:inline-flex; align-items:center; gap:6px;">
+      <span>View All Repositories</span>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"></path></svg>
+    </a>
+  </div>
+
+  <div class="gh-repo-grid">
+    {% for repo in sample_repos %}
+    <div class="gh-repo-card">
+      <div class="gh-repo-card-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-fg-muted);"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path></svg>
+          <a href="/repo/{{ repo.owner }}/{{ repo.repo }}" class="gh-repo-card-title">
+            {{ repo.owner }}/<strong>{{ repo.repo }}</strong>
+          </a>
+        </div>
+        <span class="gh-public-badge">Public</span>
+      </div>
+      <p class="gh-repo-card-desc">{{ repo.description }}</p>
+      <div class="gh-repo-card-footer">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="gh-repo-meta-item">
+            <span class="lang-dot" style="background-color: #0969da;"></span>
+            {{ repo.language or 'Code' }}
+          </span>
+          <span class="gh-repo-meta-item">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path></svg>
+            {{ repo.stars }}
+          </span>
+        </div>
+        <a href="/repo/{{ repo.owner }}/{{ repo.repo }}" class="gh-btn gh-btn-sm">Inspect PRs</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Demo Choice Modal ────────────────────────────────────── -->
+<div class="gh-modal-backdrop" id="demo-choice-modal" style="display:none;" onclick="if(event.target===this) closeDemoChoiceModal()">
+  <div class="gh-modal" style="max-width: 500px;">
+    <div class="gh-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-accent-fg);"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"></path></svg>
+        <strong style="font-size:15px;">Choose Demo Access Mode</strong>
+      </div>
+      <button type="button" class="gh-modal-close-btn" onclick="closeDemoChoiceModal()" aria-label="Close dialog">&times;</button>
+    </div>
+
+    <div class="gh-modal-body" style="display:flex; flex-direction:column; gap:16px; padding:20px;">
+      <!-- Option A: Instant Sample Repos -->
+      <div class="gh-choice-card" onclick="window.location.href='/repos'">
+        <div style="display:flex; align-items:flex-start; gap:12px;">
+          <div class="gh-choice-icon" style="background:#dafbe1; color:#1a7f37;">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg>
+          </div>
+          <div style="flex:1;">
+            <strong style="font-size:14px; color:var(--color-fg-default);">Explore Pre-Scored Repositories</strong>
+            <p style="font-size:12.5px; color:var(--color-fg-muted); margin:4px 0 0 0; line-height:1.4;">
+              Instant zero-setup access. Explore pre-scored PRs from Kubernetes, LLVM, React, Flask, and more with live server caching.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Option B: Custom Personal Token (Option 4) -->
+      <div class="gh-choice-card" onclick="switchToTokenInput()">
+        <div style="display:flex; align-items:flex-start; gap:12px;">
+          <div class="gh-choice-icon" style="background:#ddf4ff; color:#0969da;">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 5.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm1.414.5a3.5 3.5 0 1 0-4.95 2.95l-.757.757a.75.75 0 0 0 0 1.06l1.5 1.5a.75.75 0 0 0 1.06 0L5.5 11.5l1.293-1.293a3.5 3.5 0 0 0 1.121-4.207ZM11.75 9a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 .75-.75Zm3.25.75a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 0 1.5 0v-2.5Z"></path></svg>
+          </div>
+          <div style="flex:1;">
+            <strong style="font-size:14px; color:var(--color-fg-default);">Enter Personal GitHub Token (Option 4)</strong>
+            <p style="font-size:12.5px; color:var(--color-fg-muted); margin:4px 0 0 0; line-height:1.4;">
+              Paste your personal access token to unlock your own 5,000 req/hr quota and rate your team's private or organization repositories.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── OAuth Setup Modal (Shown if OAuth client ID is not configured) ─ -->
+<div class="gh-modal-backdrop" id="oauth-setup-modal" style="{% if oauth_setup %}display:flex;{% else %}display:none;{% endif %}" onclick="if(event.target===this) closeOAuthSetupModal()">
+  <div class="gh-modal" style="max-width: 540px;">
+    <div class="gh-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-attention-fg);"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>
+        <strong style="font-size:15px;">GitHub OAuth Setup Required</strong>
+      </div>
+      <button type="button" class="gh-modal-close-btn" onclick="closeOAuthSetupModal()">&times;</button>
+    </div>
+
+    <div class="gh-modal-body" style="padding:20px; font-size:13.5px; line-height:1.6;">
+      <p style="margin-bottom:12px;">
+        To enable 1-click <strong>GitHub OAuth login</strong> for anyone on this server, register a free OAuth application on GitHub:
+      </p>
+
+      <ol style="margin-left:20px; margin-bottom:16px; display:flex; flex-direction:column; gap:6px;">
+        <li>Go to <a href="https://github.com/settings/developers" target="_blank" rel="noopener noreferrer" style="font-weight:600;">GitHub Developer Settings → OAuth Apps</a>.</li>
+        <li>Click <strong>New OAuth App</strong> and set:
+          <div style="background:var(--color-canvas-subtle); padding:6px 10px; border-radius:4px; font-family:ui-monospace, monospace; font-size:12px; margin-top:4px;">
+            Callback URL: <span id="oauth-sample-callback">http://localhost:5001/auth/github/callback</span>
+          </div>
+        </li>
+        <li>Add the credentials to your <code class="gh-inline-code">.env</code> file:
+          <div style="background:var(--color-canvas-subtle); padding:6px 10px; border-radius:4px; font-family:ui-monospace, monospace; font-size:12px; margin-top:4px;">
+            GITHUB_CLIENT_ID=your_client_id<br>
+            GITHUB_CLIENT_SECRET=your_client_secret
+          </div>
+        </li>
+      </ol>
+
+      <div style="border-top:1px solid var(--color-border-muted); padding-top:14px; display:flex; flex-direction:column; gap:8px;">
+        <strong style="font-size:13px;">Don't want to set up OAuth right now?</strong>
+        <p style="font-size:12.5px; color:var(--color-fg-muted); margin:0;">
+          You can immediately use <strong>Option 4 (In-App Token Modal)</strong> or explore the pre-scored sample repositories!
+        </p>
+      </div>
+    </div>
+
+    <div class="gh-modal-footer">
+      <button type="button" class="gh-btn" onclick="closeOAuthSetupModal(); window.location.href='/repos';">
+        Continue in Demo Mode
+      </button>
+      <button type="button" class="gh-btn gh-btn-primary" onclick="closeOAuthSetupModal(); openConnectTokenModal();">
+        Connect Token (Option 4)
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openDemoChoiceModal() {
+    document.getElementById('demo-choice-modal').style.display = 'flex';
+  }
+
+  function closeDemoChoiceModal() {
+    document.getElementById('demo-choice-modal').style.display = 'none';
+  }
+
+  function switchToTokenInput() {
+    closeDemoChoiceModal();
+    if (typeof openConnectTokenModal === 'function') {
+      openConnectTokenModal();
+    }
+  }
+
+  function openOAuthSetupModal() {
+    const modal = document.getElementById('oauth-setup-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      const cb = document.getElementById('oauth-sample-callback');
+      if (cb) {
+        cb.textContent = window.location.origin + '/auth/github/callback';
+      }
+    }
+  }
+
+  function closeOAuthSetupModal() {
+    const modal = document.getElementById('oauth-setup-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+</script>
+{% endblock %}
