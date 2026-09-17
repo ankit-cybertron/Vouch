@@ -21,7 +21,12 @@ from urllib.parse import urlparse
 import requests
 from flask import Flask, jsonify, render_template, request
 
-app = Flask(__name__)
+DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(
+    __name__,
+    template_folder=os.path.join(DASHBOARD_DIR, "templates"),
+    static_folder=os.path.join(DASHBOARD_DIR, "static"),
+)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vouch-dev-secret")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
