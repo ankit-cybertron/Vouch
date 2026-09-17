@@ -101,7 +101,7 @@
           ${statusIcon}
           <div class="gh-pr-main">
             <div class="gh-pr-title-line">
-              <a href="${pr.pr_url}" target="_blank" rel="noopener noreferrer" class="gh-pr-title" id="link-pr-${pr.pr_number}" title="Open #${pr.pr_number} on GitHub">
+              <a href="/pr/${pr.repo}/${pr.pr_number}" class="gh-pr-title" id="link-pr-${pr.pr_number}" title="Inspect PR #${pr.pr_number} in Vouch">
                 ${escapeHtml(pr.title)}
               </a>
               ${requeuedBadge}
@@ -109,7 +109,12 @@
               <span class="gh-label gh-label-confidence">confidence: ${pr.confidence_pct || Math.round(pr.review_confidence * 100)}%</span>
             </div>
             <div class="gh-pr-meta">
-              <span>#${pr.pr_number}</span>
+              <a href="${pr.pr_url}" target="_blank" rel="noopener noreferrer" class="gh-pr-meta-num" title="View #${pr.pr_number} on GitHub">
+                #${pr.pr_number}
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px; opacity:0.7;">
+                  <path d="M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 8.28 8.78a.75.75 0 1 1-1.06-1.06l4.75-4.75-1.543-1.543a.25.25 0 0 1 .177-.427Z"></path>
+                </svg>
+              </a>
               <span>${isOpen ? 'opened ' + dateText : 'was merged on ' + dateText} by <strong>${escapeHtml(pr.author || 'unknown')}</strong></span>
               <span>·</span>
               <span>Reviewer: <strong>${escapeHtml(reviewer)}</strong></span>

@@ -510,6 +510,20 @@ a:hover {
   flex-wrap: wrap;
 }
 
+.gh-pr-meta-num {
+  color: var(--color-fg-muted);
+  text-decoration: none;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.gh-pr-meta-num:hover {
+  color: var(--color-accent-fg);
+  text-decoration: underline;
+}
+
 /* ── PR Right Side Meta & Actions ───────────────────────────── */
 .gh-pr-aside {
   display: flex;
