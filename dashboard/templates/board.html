@@ -203,7 +203,7 @@
         <div class="gh-meter" title="Residual risk = {{ '%.2f' | format(pr.residual_risk or 0) }}">
           <span style="font-size:11px; font-weight:600; color:var(--color-fg-muted);">{{ "%.2f" | format(pr.residual_risk or 0) }}</span>
           <div class="gh-meter-bar">
-            <div class="gh-meter-fill {{ pr.risk_tier }}" style="width: {{ pr.residual_pct or 0 }}%;"></div>
+            <div class="gh-meter-fill {{ pr.risk_tier }}" data-fill-width="{{ pr.residual_pct or 0 }}"></div>
           </div>
         </div>
         {% else %}
@@ -237,4 +237,14 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function() {
+    document.querySelectorAll('[data-fill-width]').forEach(function(el) {
+      el.style.width = (el.getAttribute('data-fill-width') || '0') + '%';
+    });
+  })();
+</script>
 {% endblock %}

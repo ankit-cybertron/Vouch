@@ -343,8 +343,8 @@
             <span>Change Risk</span>
             <strong>{{ "%.2f" | format(pr.change_risk or 0) }}</strong>
           </div>
-          <div style="height:4px; background:#eaeef2; border-radius:2px; overflow:hidden;">
-            <div style="width:{{ (pr.change_risk * 100)|int if pr.change_risk is not none else 0 }}%; height:100%; background:var(--color-danger-fg);"></div>
+          <div class="gh-meter-bar" style="width:100%; height:4px; border-radius:2px;">
+            <div class="gh-meter-fill breakdown-bar-change" data-fill-width="{{ (pr.change_risk * 100)|int if pr.change_risk is not none else 0 }}"></div>
           </div>
         </div>
 
@@ -353,26 +353,26 @@
             <span>Review Confidence</span>
             <strong>{{ "%.2f" | format(pr.review_confidence or 0) }}</strong>
           </div>
-          <div style="height:4px; background:#eaeef2; border-radius:2px; overflow:hidden;">
-            <div style="width:{{ (pr.review_confidence * 100)|int if pr.review_confidence is not none else 0 }}%; height:100%; background:var(--color-success-fg);"></div>
+          <div class="gh-meter-bar" style="width:100%; height:4px; border-radius:2px;">
+            <div class="gh-meter-fill breakdown-bar-confidence" data-fill-width="{{ (pr.review_confidence * 100)|int if pr.review_confidence is not none else 0 }}"></div>
           </div>
         </div>
 
         {% if pr.residual_risk is not none and pr.residual_risk >= 0.65 %}
-          {% set risk_color = "var(--color-danger-fg)" %}
+          {% set risk_tier = "high" %}
         {% elif pr.residual_risk is not none and pr.residual_risk >= 0.35 %}
-          {% set risk_color = "var(--color-attention-fg)" %}
+          {% set risk_tier = "medium" %}
         {% else %}
-          {% set risk_color = "var(--color-success-fg)" %}
+          {% set risk_tier = "low" %}
         {% endif %}
 
         <div style="border-top:1px solid var(--color-border-muted); padding-top:8px;">
           <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:2px;">
             <strong>Residual Risk</strong>
-            <strong style="color:{{ risk_color }};">{{ "%.2f" | format(pr.residual_risk or 0) }}</strong>
+            <strong class="risk-color-{{ risk_tier }}">{{ "%.2f" | format(pr.residual_risk or 0) }}</strong>
           </div>
-          <div style="height:6px; background:#eaeef2; border-radius:3px; overflow:hidden;">
-            <div style="width:{{ pr.residual_pct or ((pr.residual_risk * 100)|int if pr.residual_risk is not none else 0) }}%; height:100%; background:{{ risk_color }};"></div>
+          <div class="gh-meter-bar" style="width:100%; height:6px; border-radius:3px;">
+            <div class="gh-meter-fill risk-bg-{{ risk_tier }}" data-fill-width="{{ pr.residual_pct or ((pr.residual_risk * 100)|int if pr.residual_risk is not none else 0) }}"></div>
           </div>
         </div>
       </div>
@@ -398,50 +398,75 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script id="feature-data" type="application/json">
+  {{ (pr.top_features or []) | tojson }}
+</script>
 <script>
-  const featureData = {
-    labels: [{% for f in pr.top_features %}"{{ f.feature | replace('_', ' ') | title }}"{% if not loop.last %},{% endif %}{% endfor %}],
-    values: [{% for f in pr.top_features %}{{ f.contribution }}{% if not loop.last %},{% endif %}{% endfor %}],
-  };
+  (function() {
+    document.querySelectorAll('[data-fill-width]').forEach(function(el) {
+      el.style.width = (el.getAttribute('data-fill-width') || '0') + '%';
+    });
 
-  const canvas = document.getElementById('riskFeaturesChart');
-  if (canvas) {
-    const ctx = canvas.getContext('2d');
-    new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: featureData.labels,
-        datasets: [{
-          label: 'Feature Contribution',
-          data: featureData.values,
-          backgroundColor: '#0969da',
-          borderRadius: 4,
-          borderSkipped: false,
-        }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => ` Weight: ${ctx.parsed.x.toFixed(3)}`
+    const featureScript = document.getElementById('feature-data');
+    let rawFeatures = [];
+    if (featureScript && featureScript.textContent) {
+      try {
+        rawFeatures = JSON.parse(featureScript.textContent.trim());
+      } catch (e) {
+        rawFeatures = [];
+      }
+    }
+
+    const featureData = {
+      labels: rawFeatures.map(function(f) {
+        return (f.feature || '').replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+      }),
+      values: rawFeatures.map(function(f) {
+        return typeof f.contribution === 'number' ? f.contribution : 0;
+      }),
+    };
+
+    const canvas = document.getElementById('riskFeaturesChart');
+    if (canvas && featureData.labels.length > 0) {
+      const ctx = canvas.getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: featureData.labels,
+          datasets: [{
+            label: 'Feature Contribution',
+            data: featureData.values,
+            backgroundColor: '#0969da',
+            borderRadius: 4,
+            borderSkipped: false,
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  return ' Weight: ' + ctx.parsed.x.toFixed(3);
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: '#eaeef2' },
+              ticks: { font: { family: '-apple-system', size: 12 }, color: '#656d76' }
+            },
+            y: {
+              grid: { display: false },
+              ticks: { font: { family: '-apple-system', size: 12 }, color: '#1f2328' }
             }
           }
-        },
-        scales: {
-          x: {
-            grid: { color: '#eaeef2' },
-            ticks: { font: { family: '-apple-system', size: 12 }, color: '#656d76' }
-          },
-          y: {
-            grid: { display: false },
-            ticks: { font: { family: '-apple-system', size: 12 }, color: '#1f2328' }
-          }
         }
-      }
-    });
-  }
+      });
+    }
+  })();
 </script>
 {% endblock %}
