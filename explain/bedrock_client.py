@@ -81,9 +81,4 @@ def generate_explanation(
 
     except Exception as exc:
         logger.error("Bedrock call failed for %s: %s", pr_key, exc)
-        # Safe fallback that still communicates the key fact
-        return (
-            f"PR scored residual risk {residual_risk:.2f} "
-            f"(change risk {change_risk:.2f}, review confidence {review_confidence:.2f}) "
-            f"— explanation generation failed."
-        )
+        return "(disconnected)"

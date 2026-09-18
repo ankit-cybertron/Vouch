@@ -17,12 +17,14 @@ from models.risk.inference import (
 
 class TestRiskInferenceHandler:
     def test_feature_columns_contract(self):
-        # Must have exactly 21 features in predetermined order
-        assert len(FEATURE_COLS) == 21
+        # Must have exactly 28 features in predetermined order for production change risk
+        assert len(FEATURE_COLS) == 28
         assert "lines_added" in FEATURE_COLS
         assert "total_revert_count" in FEATURE_COLS
         assert "path_auth" in FEATURE_COLS
+        assert "path_credentials" in FEATURE_COLS
         assert "ai_commit_signal" in FEATURE_COLS
+        assert "rapid_merge_signal" in FEATURE_COLS
 
     def test_input_fn_valid_json(self):
         payload = json.dumps({"lines_added": 150, "files_touched": 4})

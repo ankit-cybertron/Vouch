@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}Team Review Health &amp; Fatigue Analytics · Vouch{% endblock %}
+{% block meta_description %}Vouch Team Review Health — Real-time analytics on reviewer fatigue, rubber-stamp rates, module safety, and review depth across engineering teams.{% endblock %}
+
+{% block content %}
+
+<!-- ── Page Header & Repository Filter ──────────────────────── -->
+<div class="gh-board-header" style="margin-bottom:24px;">
+  <div>
+    <h1 style="font-size:20px; font-weight:600; color:var(--color-fg-default); display:flex; align-items:center; gap:8px;">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-accent-fg);">
+        <path d="M1.5 1.75V13.5h13.75a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 1.5 0Zm14.28 2.53-5.25 5.25a.75.75 0 0 1-1.06 0L7 7.06 2.53 11.53a.75.75 0 0 1-1.06-1.06l5-5a.75.75 0 0 1 1.06 0l2.47 2.47 4.72-4.72a.75.75 0 0 1 1.06 1.06Z"></path>
+      </svg>
+      Team Review Health &amp; Fatigue Analytics
+    </h1>
+    <p style="font-size:13px; color:var(--color-fg-muted); margin-top:4px;">
+      Continuous inspection of code-review thoroughness, reviewer overload, rubber-stamp incidence, and safety exposure across monitored repositories.
+    </p>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:12px;">
+    <form method="get" action="/team-health" style="display:flex; align-items:center; gap:8px;">
+      <label for="repo-filter-select" style="font-size:12px; font-weight:600; color:var(--color-fg-muted);">Repository:</label>
+      <select id="repo-filter-select" name="repo" onchange="this.form.submit()" class="gh-btn gh-btn-sm" style="background-color:var(--color-canvas-default); border-color:var(--color-border-default); padding:4px 10px; font-size:12px; cursor:pointer;">
+        <option value="all" {% if active_repo == 'all' or not active_repo %}selected{% endif %}>All Repositories (Aggregate)</option>
+        {% for r in repos %}
+        <option value="{{ r.full_name }}" {% if active_repo == r.full_name %}selected{% endif %}>{{ r.full_name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<!-- ── KPI Summary Cards ────────────────────────────────────── -->
+<div class="gh-insights-box" style="margin-bottom:24px;" role="region" aria-label="Review Health KPIs">
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num {% if health.rubber_stamp_rate > 35 %}danger{% elif health.rubber_stamp_rate > 20 %}attention{% else %}success{% endif %}">
+      {{ health.rubber_stamp_rate }}%
+    </div>
+    <div class="gh-kpi-label">Rubber-Stamp Index</div>
+    <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">Approvals with minimal scrutiny</div>
+  </div>
+
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num {% if health.fatigue_index > 40 %}danger{% elif health.fatigue_index > 20 %}attention{% else %}success{% endif %}">
+      {{ health.fatigue_index }}%
+    </div>
+    <div class="gh-kpi-label">Reviewer Fatigue Index</div>
+    <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">Reviewers under high/moderate load</div>
+  </div>
+
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num {% if health.re_queued_count > 0 %}danger{% else %}success{% endif %}">
+      {{ health.re_queued_count }}
+    </div>
+    <div class="gh-kpi-label">Flagged Re-Queues</div>
+    <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">PRs exceeding 0.65 residual risk</div>
+  </div>
+
+  <div class="gh-kpi-item">
+    <div class="gh-kpi-num">
+      {{ health.avg_review_mins }}m
+    </div>
+    <div class="gh-kpi-label">Avg Review Duration</div>
+    <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">Across {{ health.total_prs }} analyzed pull requests</div>
+  </div>
+</div>
+
+<!-- ── Section 1: Reviewer Workload & Attention Leaderboard ── -->
+<div class="gh-box" style="margin-bottom:24px;">
+  <div class="gh-box-header" style="justify-content:space-between;">
+    <div style="font-weight:600; display:flex; align-items:center; gap:8px;">
+      <span>Reviewer Workload &amp; Attention Posture</span>
+      <span class="gh-label gh-label-confidence">{{ health.reviewers | length }} active reviewers</span>
+    </div>
+    <div style="font-size:12px; color:var(--color-fg-muted);">
+      Assesses session volume, time adequacy, and behavioral deviation (Model 3)
+    </div>
+  </div>
+
+  <div class="gh-table-responsive" style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:left;">
+      <thead>
+        <tr style="background-color:var(--color-canvas-subtle); border-bottom:1px solid var(--color-border-default); color:var(--color-fg-muted);">
+          <th style="padding:10px 16px;">Reviewer</th>
+          <th style="padding:10px 16px;">Reviews Conducted</th>
+          <th style="padding:10px 16px;">Avg Duration</th>
+          <th style="padding:10px 16px;">Rubber-Stamp Rate</th>
+          <th style="padding:10px 16px;">Avg Depth (Model 2)</th>
+          <th style="padding:10px 16px;">Attention Score (Model 3)</th>
+          <th style="padding:10px 16px;">Fatigue Posture</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in health.reviewers %}
+        <tr style="border-bottom:1px solid var(--color-border-muted);">
+          <td style="padding:12px 16px;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:600; color:var(--color-fg-default);">
+              <span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--color-canvas-subtle); border:1px solid var(--color-border-default); font-size:11px; text-transform:uppercase;">
+                {{ r.login[:2] }}
+              </span>
+              @{{ r.login }}
+            </div>
+          </td>
+          <td style="padding:12px 16px; font-weight:600;">
+            {{ r.prs_reviewed }} PR{{ 's' if r.prs_reviewed != 1 else '' }}
+          </td>
+          <td style="padding:12px 16px; color:var(--color-fg-muted);">
+            {{ r.avg_duration_min }} min
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label {% if r.rubber_stamp_pct > 40 %}gh-label-high{% elif r.rubber_stamp_pct > 15 %}gh-label-medium{% else %}gh-label-low{% endif %}">
+              {{ r.rubber_stamp_pct }}% ({{ r.rubber_stamps }})
+            </span>
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label gh-label-confidence">{{ "%.2f" | format(r.avg_depth) }}</span>
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label gh-label-confidence">{{ (r.avg_attention * 100)|int }}%</span>
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label gh-label-{{ r.status_class }}">
+              {{ r.status }}
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" style="padding:24px; text-align:center; color:var(--color-fg-muted);">
+            No reviewer activity recorded yet for this repository filter.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Section 2: Critical Module Safety & Exposure Matrix ── -->
+<div class="gh-box" style="margin-bottom:24px;">
+  <div class="gh-box-header" style="justify-content:space-between;">
+    <div style="font-weight:600; display:flex; align-items:center; gap:8px;">
+      <span>Critical Module Safety &amp; Exposure Matrix</span>
+      <span class="gh-label gh-label-confidence">Path Sensitivity</span>
+    </div>
+    <div style="font-size:12px; color:var(--color-fg-muted);">
+      Monitors whether high-risk architecture domains receive proportionate review depth
+    </div>
+  </div>
+
+  <div class="gh-table-responsive" style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:left;">
+      <thead>
+        <tr style="background-color:var(--color-canvas-subtle); border-bottom:1px solid var(--color-border-default); color:var(--color-fg-muted);">
+          <th style="padding:10px 16px;">Module Domain</th>
+          <th style="padding:10px 16px;">Changes Touched</th>
+          <th style="padding:10px 16px;">Avg Change Risk (Model 1)</th>
+          <th style="padding:10px 16px;">Avg Review Depth (Model 2)</th>
+          <th style="padding:10px 16px;">Residual Risk Level</th>
+          <th style="padding:10px 16px;">Protection Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in health.modules %}
+        <tr style="border-bottom:1px solid var(--color-border-muted);">
+          <td style="padding:12px 16px; font-weight:600; color:var(--color-fg-default);">
+            {{ m.name }}
+          </td>
+          <td style="padding:12px 16px;">
+            {{ m.count }} change{{ 's' if m.count != 1 else '' }}
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label {% if m.avg_change_risk >= 0.65 %}gh-label-high{% elif m.avg_change_risk >= 0.35 %}gh-label-medium{% else %}gh-label-low{% endif %}">
+              {{ "%.2f" | format(m.avg_change_risk) }}
+            </span>
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label gh-label-confidence">
+              {{ "%.2f" | format(m.avg_depth) }}
+            </span>
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label gh-label-{{ m.status_class }}">
+              {{ "%.2f" | format(m.avg_residual_risk) }}
+            </span>
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="gh-label gh-label-{{ m.status_class }}">
+              {{ m.status }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Section 3: Dual Grid: Pacing Breakdown & Discrepancy Radar ── -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px;">
+
+  <!-- Review Pacing Profile -->
+  <div class="gh-box">
+    <div class="gh-box-header">
+      <div style="font-weight:600;">Review Pacing Profile</div>
+      <span class="gh-label gh-label-confidence">Duration Breakdown</span>
+    </div>
+    <div style="padding:20px;">
+      <div style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+          <span>Rushed (&lt; 5 mins) — High Defect Probability</span>
+          <span style="font-weight:600; color:var(--color-danger-fg);">{{ health.pacing.rushed }} PRs</span>
+        </div>
+        <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
+          <div data-fill-width="{{ health.pacing.rushed_pct }}%" style="height:100%; width:{{ health.pacing.rushed_pct }}%; background:var(--color-danger-fg);"></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+          <span>Brief (5 – 20 mins) — Routine changes</span>
+          <span style="font-weight:600; color:var(--color-attention-fg);">{{ health.pacing.brief }} PRs</span>
+        </div>
+        <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
+          <div data-fill-width="{{ health.pacing.brief_pct }}%" style="height:100%; width:{{ health.pacing.brief_pct }}%; background:var(--color-attention-fg);"></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+          <span>Standard (20 – 60 mins) — Thorough review</span>
+          <span style="font-weight:600; color:var(--color-success-fg);">{{ health.pacing.standard }} PRs</span>
+        </div>
+        <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
+          <div data-fill-width="{{ health.pacing.standard_pct }}%" style="height:100%; width:{{ health.pacing.standard_pct }}%; background:var(--color-success-fg);"></div>
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+          <span>Thorough (&gt; 60 mins) — Deep architectural audit</span>
+          <span style="font-weight:600; color:var(--color-done-fg);">{{ health.pacing.thorough }} PRs</span>
+        </div>
+        <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
+          <div data-fill-width="{{ health.pacing.thorough_pct }}%" style="height:100%; width:{{ health.pacing.thorough_pct }}%; background:var(--color-done-fg);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Discrepancy Alarm Radar -->
+  <div class="gh-box">
+    <div class="gh-box-header">
+      <div style="font-weight:600;">Discrepancy Alarm Radar</div>
+      <span class="gh-label gh-label-confidence">Process Anomalies</span>
+    </div>
+    <div style="padding:16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 8px; border-bottom:1px solid var(--color-border-muted);">
+        <div>
+          <div style="font-weight:600; font-size:13px;">Rapid Merges (&lt; 10 min)</div>
+          <div style="font-size:11px; color:var(--color-fg-muted);">Merged before standard CI or review window</div>
+        </div>
+        <span class="gh-label {% if health.discrepancies.rapid_merge > 0 %}gh-label-high{% else %}gh-label-low{% endif %}">
+          {{ health.discrepancies.rapid_merge }}
+        </span>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 8px; border-bottom:1px solid var(--color-border-muted);">
+        <div>
+          <div style="font-weight:600; font-size:13px;">Author Self-Reviews</div>
+          <div style="font-size:11px; color:var(--color-fg-muted);">Author approved their own pull request</div>
+        </div>
+        <span class="gh-label {% if health.discrepancies.self_review > 0 %}gh-label-high{% else %}gh-label-low{% endif %}">
+          {{ health.discrepancies.self_review }}
+        </span>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 8px; border-bottom:1px solid var(--color-border-muted);">
+        <div>
+          <div style="font-weight:600; font-size:13px;">Unassigned / Missing Reviewer</div>
+          <div style="font-size:11px; color:var(--color-fg-muted);">Changes merged with no dedicated peer reviewer</div>
+        </div>
+        <span class="gh-label {% if health.discrepancies.no_reviewer > 0 %}gh-label-medium{% else %}gh-label-low{% endif %}">
+          {{ health.discrepancies.no_reviewer }}
+        </span>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 8px; border-bottom:1px solid var(--color-border-muted);">
+        <div>
+          <div style="font-weight:600; font-size:13px;">WIP / Hold Merged</div>
+          <div style="font-size:11px; color:var(--color-fg-muted);">Work-in-progress title merged into target branch</div>
+        </div>
+        <span class="gh-label {% if health.discrepancies.wip_merged > 0 %}gh-label-high{% else %}gh-label-low{% endif %}">
+          {{ health.discrepancies.wip_merged }}
+        </span>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 8px;">
+        <div>
+          <div style="font-weight:600; font-size:13px;">High Residual Risk Re-Queued</div>
+          <div style="font-size:11px; color:var(--color-fg-muted);">Triggered mandatory senior re-review check</div>
+        </div>
+        <span class="gh-label {% if health.discrepancies.high_residual_requeued > 0 %}gh-label-requeued{% else %}gh-label-low{% endif %}">
+          {{ health.discrepancies.high_residual_requeued }}
+        </span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

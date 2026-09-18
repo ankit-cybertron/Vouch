@@ -49,13 +49,23 @@ class TestDashboardCoreRoutes:
 
         assert "Pull Requests" in html or "kubernetes" in html
 
-    def test_validation_page_rendering(self, client):
-        """GET /validation renders retrospective validation matrix."""
+    def test_team_health_page_rendering(self, client):
+        """GET /team-health renders team review health and fatigue analytics."""
+        res = client.get("/team-health")
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+
+        assert "Team Review Health" in html
+        assert "Reviewer Fatigue Index" in html
+        assert "Rubber-Stamp Index" in html
+
+    def test_validation_route_compatibility(self, client):
+        """GET /validation renders team health analytics for backward compatibility."""
         res = client.get("/validation")
         assert res.status_code == 200
         html = res.get_data(as_text=True)
 
-        assert "Retrospective Validation" in html
+        assert "Team Review Health" in html
 
     def test_404_error_page(self, client):
         """Requesting non-existent route renders custom 404 page."""

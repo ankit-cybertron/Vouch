@@ -21,13 +21,20 @@ logger.setLevel(logging.INFO)
 
 # Must match training feature order exactly
 FEATURE_COLS = [
+    # Diff size signals
     "lines_added", "lines_removed", "net_delta", "total_changed_lines",
     "files_touched", "hunk_count", "max_hunk_size",
+    # Historical churn and quality
     "total_churn_90d", "total_revert_count", "mean_defect_density", "mean_ownership_gini",
+    # Sensitive path flags (6 original + 4 new)
     "path_auth", "path_payment", "path_migration", "path_crypto",
     "path_config", "path_infra", "path_sensitive_path_count",
+    "path_audit", "path_credentials", "path_iac", "path_testing",
+    # Author and AI signals
     "author_prior_commits_in_files",
-    "ai_commit_signal", "diff_uniformity",
+    "ai_commit_signal", "diff_uniformity", "block_add_signal",
+    # PR-level quality signals
+    "pr_description_quality", "rapid_merge_signal",
 ]
 
 _model: xgb.XGBClassifier | None = None
@@ -85,6 +92,13 @@ if __name__ == "__main__":
     model_dir = sys.argv[1] if len(sys.argv) > 1 else "./output"
     model = model_fn(model_dir)
     sample = {col: 0 for col in FEATURE_COLS}
-    sample.update({"lines_added": 300, "total_revert_count": 5, "path_auth": 1})
+    sample.update({
+        "lines_added": 300,
+        "total_revert_count": 5,
+        "path_auth": 1,
+        "path_credentials": 1,
+        "rapid_merge_signal": 1,
+        "pr_description_quality": 0.0,
+    })
     result = predict_fn(sample, model)
     print(json.dumps(result, indent=2))

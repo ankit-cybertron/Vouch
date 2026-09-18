@@ -160,10 +160,18 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-done-fg);"><path d="M7.47 10.78a.75.75 0 0 0 1.06 0l3.75-3.75a.75.75 0 0 0-1.06-1.06L8.75 8.44V1.75a.75.75 0 0 0-1.5 0v6.69L4.78 5.97a.75.75 0 0 0-1.06 1.06l3.75 3.75Z"></path><path d="M2 13h12a1 1 0 0 1 0 2H2a1 1 0 0 1 0-2Z"></path></svg>
           <span>Bedrock Claude 3 · Risk Narration</span>
         </div>
+        {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
         <span class="gh-label gh-label-confidence">AWS Bedrock Claude 3</span>
+        {% else %}
+        <span class="gh-label gh-label-confidence">(disconnected)</span>
+        {% endif %}
       </div>
       <div style="padding:16px; font-size:14px; line-height:1.6; color:var(--color-fg-default); background-color:var(--color-canvas-default);">
-        {{ pr.explanation }}
+        {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
+          {{ pr.bedrock_explanation }}
+        {% else %}
+          <span style="color:var(--color-fg-muted); font-style:italic;">(disconnected)</span>
+        {% endif %}
       </div>
     </div>
 
