@@ -34,14 +34,26 @@ from flask import (
     has_request_context,
 )
 
-from dashboard.seeds import (
-    BOARD_STATS,
-    DEMO_PRS,
-    REPO_SPECIFIC_PR_SPECS,
-)
 from dashboard.store import get_store
 
 store = get_store()
+
+
+def _compute_board_stats(prs: list[dict] | None = None) -> dict:
+    """Compute live aggregate statistics dynamically across scored pull requests."""
+    if prs is None:
+        prs = list(LIVE_PRS_CACHE.values()) if "LIVE_PRS_CACHE" in globals() else []
+    total = len(prs)
+    high_risk = sum(1 for p in prs if p.get("risk_tier") == "high")
+    requeued = sum(1 for p in prs if p.get("residual_risk", 0) >= 0.65)
+    avg_res = round(sum(p.get("residual_risk", 0) for p in prs) / max(total, 1), 2)
+    return {
+        "total_scored": total,
+        "high_risk_flagged": high_risk,
+        "requeued_today": requeued,
+        "avg_residual_risk": avg_res,
+        "precision_at_20": f"{min(requeued, 9)}/20" if total else "0/20",
+    }
 
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(
@@ -831,88 +843,6 @@ def _is_within_30_days(date_str: str | None) -> bool:
         return False
 
 
-def _generate_simulated_prs(owner: str, repo: str, count: int = 28) -> list[dict]:
-    """Generate repository-authentic pull requests (at least 28) with calibrated multi-tier risk distributions."""
-    now = datetime.now(timezone.utc)
-    full_name = f"{owner}/{repo}".lower()
-
-    spec = REPO_SPECIFIC_PR_SPECS.get(full_name)
-    if not spec:
-        # Check by repo name only
-        for k, v in REPO_SPECIFIC_PR_SPECS.items():
-            if k.split("/")[1] == repo.lower():
-                spec = v
-                break
-
-    if spec:
-        base_num = spec["base_num"]
-        catalog = spec["items"]
-    else:
-        # Deterministic dynamic generation for any custom repository
-        h = abs(hash(full_name))
-        base_num = 1000 + (h % 7000)
-        lang = "python" if any(p in repo.lower() for p in ("py", "flask", "django", "fast")) else (
-            "javascript" if any(p in repo.lower() for p in ("js", "react", "vue", "node")) else "general"
-        )
-        ext = ".py" if lang == "python" else (".ts" if lang == "javascript" else ".go")
-        author_list = ["core-dev", "platform-lead", "octocat", "sec-eng", "dev-lead", "qa-eng"]
-
-        catalog = [
-            ("[ACTIVE] Fix auth token refresh race condition under high concurrency", f"src/auth/session{ext}", "open", 1, 380, 85, "dev-lead", "sec-eng", "high", 0, 45),
-            ("Refactor TLS connection pooling and handshake validation", f"src/security/tls{ext}", "closed", 2, 540, 120, "sec-eng", "core-dev", "high", 1, 80),
-            ("Update documentation and architecture quickstart guides", "docs/quickstart.md", "closed", 3, 40, 10, "octocat", "platform-lead", "low", 3, 7200),
-            ("[ACTIVE] Optimize LRU cache eviction lock contention during burst traffic", f"src/cache/lru{ext}", "open", 4, 290, 65, "platform-lead", "core-dev", "medium", 2, 1900),
-            ("Sanitize user-supplied redirect URIs against open redirect attacks", f"src/security/redirect{ext}", "closed", 5, 340, 80, "sec-eng", "dev-lead", "high", 0, 50),
-            ("Fix memory leak in stream reader buffer reallocation loop", f"src/stream/reader{ext}", "closed", 6, 420, 95, "core-dev", "platform-lead", "high", 1, 90),
-            ("[ACTIVE] Add structured telemetry metrics for outbound HTTP dispatch", f"src/telemetry/metrics{ext}", "open", 7, 180, 40, "octocat", "dev-lead", "low", 2, 3600),
-            ("Fix secret key rotation fallback during session decryption", f"src/auth/crypto{ext}", "closed", 8, 390, 90, "sec-eng", "core-dev", "high", 0, 60),
-            ("Clarify API error response formatting in developer guidelines", "docs/api-guide.md", "closed", 9, 50, 12, "octocat", "sec-eng", "low", 2, 8500),
-            ("[ACTIVE] Implement distributed rate limiter token bucket algorithm", f"src/ratelimit/bucket{ext}", "open", 10, 310, 75, "platform-lead", "core-dev", "medium", 3, 2700),
-            ("Add healthcheck probe endpoint with deep subsystem diagnostics", f"src/health/probe{ext}", "closed", 11, 150, 35, "qa-eng", "platform-lead", "low", 3, 4500),
-            ("Prevent SQL query fragment parameter injection in query builder", f"src/db/builder{ext}", "closed", 12, 450, 110, "sec-eng", "core-dev", "high", 1, 95),
-            ("[ACTIVE] Add automated integration test suite for cluster failover", f"tests/test_cluster{ext}", "open", 13, 210, 45, "qa-eng", "dev-lead", "low", 2, 3800),
-            ("Refactor database migration lock acquisition with exponential backoff", f"src/db/migration{ext}", "closed", 14, 280, 65, "core-dev", "platform-lead", "medium", 2, 2800),
-            ("[ACTIVE] Support dynamic TLS certificate reloading without process restart", f"src/security/certs{ext}", "open", 16, 360, 85, "sec-eng", "dev-lead", "medium", 3, 3100),
-            ("Clarify contributing setup and virtual environment instructions", "CONTRIBUTING.md", "closed", 18, 45, 10, "octocat", "core-dev", "low", 1, 6200),
-            ("Fix timezone parsing edge case in recurring cron parser", f"src/cron/schedule{ext}", "closed", 20, 160, 40, "core-dev", "qa-eng", "low", 3, 5000),
-            ("[ACTIVE] Improve error messages and context stacktraces for validation failures", f"src/errors/formatter{ext}", "open", 22, 240, 55, "platform-lead", "dev-lead", "medium", 2, 2200),
-            ("Optimize regex compiler cache hit ratio for route matching engine", f"src/router/matcher{ext}", "closed", 24, 190, 45, "dev-lead", "core-dev", "low", 3, 4800),
-            ("Gracefully handle SIGTERM shutdown signal in background worker pools", f"src/worker/pool{ext}", "closed", 26, 320, 75, "platform-lead", "sec-eng", "medium", 3, 3000),
-            ("Update build matrix and container base image to patch vulnerability", "Dockerfile", "closed", 28, 55, 15, "sec-eng", "octocat", "low", 1, 8800),
-            ("[ACTIVE] Add OpenTelemetry tracing context propagation across async spans", f"src/tracing/context{ext}", "open", 30, 270, 60, "platform-lead", "core-dev", "medium", 2, 2600),
-            ("Fix integer overflow vulnerability in chunk length validator", f"src/http/chunks{ext}", "closed", 33, 230, 50, "sec-eng", "dev-lead", "medium", 2, 3300),
-            ("Optimize JSON serialization buffer allocations for bulk responses", f"src/serializer/json{ext}", "closed", 36, 175, 40, "core-dev", "platform-lead", "low", 3, 5200),
-            ("[ACTIVE] Support HTTP/3 QUIC protocol negotiation in edge gateway", f"src/gateway/quic{ext}", "open", 40, 390, 95, "dev-lead", "platform-lead", "medium", 3, 3200),
-            ("Refactor user session revocation to publish distributed invalidation event", f"src/auth/sessions{ext}", "closed", 45, 290, 70, "sec-eng", "core-dev", "medium", 2, 3500),
-            ("Update code formatting and lint rules for latest release", ".pre-commit-config.yaml", "closed", 52, 60, 15, "octocat", "core-dev", "low", 2, 7500),
-            ("Deprecate legacy configuration options in favor of environment variables", f"src/config/loader{ext}", "closed", 60, 45, 12, "platform-lead", "dev-lead", "low", 2, 8200),
-        ]
-
-    simulated = []
-    for idx, (title, path, state, days_ago, adds, dels, author, reviewer, profile, comments_cnt, dur_secs) in enumerate(catalog[:count]):
-        pr_num = base_num + idx + 1
-        created_dt = now - timedelta(days=days_ago, hours=idx % 12, minutes=idx * 7 % 60)
-        merged_dt = created_dt + timedelta(seconds=dur_secs) if state == "closed" else None
-        simulated.append({
-            "number": pr_num,
-            "title": title,
-            "user": {"login": author},
-            "reviewer": reviewer,
-            "state": state,
-            "created_at": created_dt.isoformat(),
-            "merged_at": merged_dt.isoformat() if merged_dt else None,
-            "additions": adds,
-            "deletions": dels,
-            "changed_files": max(1, (adds + dels) // 80),
-            "_files": [{"filename": path}],
-            "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_num}",
-            "_sim_profile": profile,
-            "_sim_reviewer": reviewer,
-            "_duration_secs": dur_secs,
-            "_comments_count": comments_cnt,
-        })
-    return simulated
-
 
 def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh: bool = False) -> dict:
     """
@@ -960,7 +890,7 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
             "prs": [],
             "error": f"Repository '{owner}/{repo}' was not found on GitHub. Check spelling or access permissions.",
             "repo_meta": {},
-            "stats": BOARD_STATS,
+            "stats": _compute_board_stats([]),
         }
 
     candidates = []
@@ -994,13 +924,6 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         elif isinstance(open_resp, dict) and open_resp.get("_rate_limit_exceeded"):
             rate_limited = True
 
-    # 3. Ensure at least 25 PRs: supplement with realistic simulated PRs only if unauthenticated & empty
-    if len(candidates) < 25 and not _resolve_github_token():
-        sim_prs = _generate_simulated_prs(owner, repo, count=28)
-        for sp in sim_prs:
-            if sp["number"] not in seen_numbers:
-                seen_numbers.add(sp["number"])
-                candidates.append(sp)
 
     # 4. Sort candidates chronologically (most recent first)
     candidates.sort(
@@ -1183,45 +1106,21 @@ def _discover_popular_repos(limit: int = 6) -> list[dict]:
 
 
 
-# Enrich demo PRs with computed fields (imported from dashboard.seeds)
-for pr in DEMO_PRS:
-    if "risk_tier" not in pr:
-        pr["risk_tier"] = _risk_tier(pr["residual_risk"])
-    if "confidence_pct" not in pr:
-        pr["confidence_pct"] = int(pr["review_confidence"] * 100)
-    if "residual_pct" not in pr:
-        pr["residual_pct"] = int(pr["residual_risk"] * 100)
-    if "change_risk_pct" not in pr:
-        pr["change_risk_pct"] = int(pr["change_risk"] * 100)
-    if "state" not in pr:
-        pr["state"] = "closed"
-    _cache_scored_pr(pr)
-
-DEMO_PR_MAP = {pr["pr_number"]: pr for pr in DEMO_PRS}
-
-
 def _init_default_repos() -> None:
-    """Populate default repositories catalog and PR caches with stored/seed repositories."""
+    """Populate default repositories catalog and PR caches with persisted repositories."""
     stored_repos = store.get_repos()
-    if not stored_repos:
-        from dashboard.seeds import DEFAULT_REPOS
-        for name, repo_meta in DEFAULT_REPOS.items():
-            store.save_repo(dict(repo_meta))
-        stored_repos = store.get_repos()
-
     for name, repo_meta in stored_repos.items():
         FETCHED_REPOS[name] = dict(repo_meta)
 
     stored_prs = store.get_prs()
-    if not stored_prs:
-        store.save_prs(DEMO_PRS)
-        stored_prs = store.get_prs()
-
     for pr in stored_prs:
-        repo_name = pr.get("repo", "kubernetes/kubernetes")
-        if repo_name not in REPO_PRS_CACHE:
-            REPO_PRS_CACHE[repo_name] = []
-        REPO_PRS_CACHE[repo_name].append(pr)
+        if "risk_tier" not in pr and "residual_risk" in pr:
+            pr["risk_tier"] = _risk_tier(pr["residual_risk"])
+        repo_name = pr.get("repo", "")
+        if repo_name:
+            if repo_name not in REPO_PRS_CACHE:
+                REPO_PRS_CACHE[repo_name] = []
+            REPO_PRS_CACHE[repo_name].append(pr)
         _cache_scored_pr(pr)
 
 
@@ -1590,7 +1489,7 @@ def repo_view(owner: str, repo_name: str):
         result = _fetch_and_score_repo(owner, repo_name, limit=50)
         prs = result.get("prs", [])
         current_repo_meta = result.get("repo_meta", {})
-        stats = result.get("stats", BOARD_STATS)
+        stats = result.get("stats") or _compute_board_stats(prs)
 
     # Keyword or PR number search with on-the-fly fetch
     if search:
@@ -1836,50 +1735,12 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
                 _cache_scored_pr(scored)
                 return scored, 200
 
-    # 4. Check DEMO_PR_MAP only if it belongs to this repository
-    if pr_number in DEMO_PR_MAP:
-        demo_pr = DEMO_PR_MAP[pr_number]
-        if demo_pr.get("repo", "").lower() == full_repo_lower:
-            return demo_pr, 200
-
-    # 5. Check if this PR number exists in REPO_SPECIFIC_PR_SPECS (only when offline/rate-limited)
-    if not _resolve_github_token():
-        spec = REPO_SPECIFIC_PR_SPECS.get(full_repo_lower)
-        if not spec:
-            for k, v in REPO_SPECIFIC_PR_SPECS.items():
-                if k.split("/")[1] == repo_name.lower():
-                    spec = v
-                    break
-
-        if spec:
-            base_num = spec["base_num"]
-            idx = pr_number - base_num - 1
-            if 0 <= idx < len(spec["items"]):
-                title, path, state, days_ago, adds, dels, author, reviewer, profile, comments_cnt, dur_secs = spec["items"][idx]
-                created_dt = datetime.now(timezone.utc) - timedelta(days=days_ago)
-                merged_dt = created_dt + timedelta(seconds=dur_secs) if state == "closed" else None
-                sim_pr = {
-                    "number": pr_number,
-                    "title": title,
-                    "user": {"login": author},
-                    "reviewer": reviewer,
-                    "state": state,
-                    "created_at": created_dt.isoformat(),
-                    "merged_at": merged_dt.isoformat() if merged_dt else None,
-                    "additions": adds,
-                    "deletions": dels,
-                    "changed_files": max(1, (adds + dels) // 80),
-                    "_files": [{"filename": path}],
-                    "html_url": f"https://github.com/{full_repo}/pull/{pr_number}",
-                    "_repo": full_repo,
-                    "_sim_profile": profile,
-                    "_sim_reviewer": reviewer,
-                    "_duration_secs": dur_secs,
-                    "_comments_count": comments_cnt,
-                }
-                scored = _score_pr_heuristic(sim_pr)
-                _cache_scored_pr(scored)
-                return scored, 200
+    # 4. Check persistent storage for this repository and PR number
+    stored_prs = store.get_prs()
+    for p in stored_prs:
+        if p.get("repo", "").lower() == full_repo_lower and p.get("pr_number") == pr_number:
+            _cache_scored_pr(p)
+            return p, 200
 
     return None, 404
 
@@ -1934,10 +1795,16 @@ def pr_detail_catchall(pr_key: str):
     # If format is just a number
     if cleaned.isdigit():
         num = int(cleaned)
-        if num in DEMO_PR_MAP:
-            return render_template("pr_detail.html", pr=DEMO_PR_MAP[num])
+        for p in list(LIVE_PRS_CACHE.values()):
+            if isinstance(p, dict) and p.get("pr_number") == num:
+                return render_template("pr_detail.html", pr=p)
         if num in LIVE_PRS_CACHE:
             return render_template("pr_detail.html", pr=LIVE_PRS_CACHE[num])
+        stored_prs = store.get_prs()
+        for p in stored_prs:
+            if p.get("pr_number") == num:
+                _cache_scored_pr(p)
+                return render_template("pr_detail.html", pr=p)
 
     # Fallback 404
     return render_template(
@@ -1962,7 +1829,7 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
                 all_prs.append(pr_dict)
 
     if not all_prs:
-        all_prs = list(DEMO_PRS)
+        all_prs = store.get_prs()
 
     # De-duplicate by pr_key
     seen_keys = set()
@@ -2216,21 +2083,23 @@ def api_repos():
 
 @app.route("/api/prs")
 def api_prs():
+    repo_filter = request.args.get("repo", "").strip()
     risk_filter = request.args.get("risk", "all")
-    prs = sorted(DEMO_PRS, key=lambda x: x["residual_risk"], reverse=True)
+    prs = store.get_prs(repo=repo_filter if repo_filter else None)
     if risk_filter != "all":
-        prs = [p for p in prs if p["risk_tier"] == risk_filter]
+        prs = [p for p in prs if p.get("risk_tier") == risk_filter]
+    prs = sorted(prs, key=lambda x: x.get("residual_risk") or 0.0, reverse=True)
     return jsonify({
         "prs": [
             {
-                "pr_key": p["pr_key"],
+                "pr_key": p.get("pr_key") or f"{p.get('repo', '')}#{p.get('pr_number', '')}",
                 "pr_url": p.get("pr_url", ""),
-                "title": p["title"],
-                "risk_tier": p["risk_tier"],
-                "residual_risk": p["residual_risk"],
+                "title": p.get("title", ""),
+                "risk_tier": p.get("risk_tier", "unscored"),
+                "residual_risk": p.get("residual_risk"),
                 "reviewer": p.get("reviewer", ""),
-                "merged_at": p["merged_at"],
-                "status": p["status"],
+                "merged_at": p.get("merged_at"),
+                "status": p.get("status", "pending_analysis"),
             }
             for p in prs
         ],

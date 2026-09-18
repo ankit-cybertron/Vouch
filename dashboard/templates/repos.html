@@ -129,12 +129,16 @@
 
       <!-- Average Residual Risk -->
       <div style="margin-left:auto;">
-        {% if repo.avg_residual_risk >= 0.65 %}
-        <span class="gh-label gh-label-high">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
-        {% elif repo.avg_residual_risk >= 0.35 %}
-        <span class="gh-label gh-label-medium">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
+        {% if repo.avg_residual_risk is not none %}
+          {% if repo.avg_residual_risk >= 0.65 %}
+          <span class="gh-label gh-label-high">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
+          {% elif repo.avg_residual_risk >= 0.35 %}
+          <span class="gh-label gh-label-medium">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
+          {% else %}
+          <span class="gh-label gh-label-low">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
+          {% endif %}
         {% else %}
-        <span class="gh-label gh-label-low">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
+          <span class="gh-label gh-label-secondary">not yet scored</span>
         {% endif %}
       </div>
     </div>
