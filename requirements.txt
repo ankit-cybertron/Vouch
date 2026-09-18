@@ -13,9 +13,6 @@ numpy>=1.26.0
 # Machine Learning & NLP Scorer Models
 scikit-learn>=1.4.0
 xgboost>=2.0.0
-torch>=2.2.0
-transformers>=4.40.0
-accelerate>=0.28.0
 
 # AWS Cloud & Bedrock LLM Integration
 boto3>=1.34.0
