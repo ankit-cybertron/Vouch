@@ -1,0 +1,50 @@
+name: Deploy Models to Amazon SageMaker
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  deploy-sagemaker:
+    name: Deploy SageMaker Models
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ML dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ml.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Package and Deploy Models to SageMaker
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+          SAGEMAKER_BUCKET: ${{ secrets.SAGEMAKER_BUCKET || secrets.AWS_S3_BUCKET }}
+          SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
+          RISK_MODEL_ENDPOINT: ${{ vars.RISK_MODEL_ENDPOINT || 'vouch-risk-model-prod' }}
+          DEPTH_MODEL_ENDPOINT: ${{ vars.DEPTH_MODEL_ENDPOINT || 'vouch-depth-model-prod' }}
+        run: |
+          python scripts/deploy_sagemaker.py
