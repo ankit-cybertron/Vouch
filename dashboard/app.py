@@ -34,6 +34,15 @@ from flask import (
     has_request_context,
 )
 
+from dashboard.seeds import (
+    BOARD_STATS,
+    DEMO_PRS,
+    REPO_SPECIFIC_PR_SPECS,
+)
+from dashboard.store import get_store
+
+store = get_store()
+
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(
     __name__,
@@ -42,6 +51,7 @@ app = Flask(
 )
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vouch-dev-secret")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.globals.update(max=max, min=min)
 
 
 def _resolve_github_token() -> str:
@@ -210,10 +220,20 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     """
     Score a PR using Vouch's core residual risk formulation:
         residual_risk = change_risk × (1.0 − review_confidence)
-    Calibrated across realistic risk tiers:
-      - High (≥ 0.65): triggers re-queue, red badge and meter bar
-      - Medium (0.35–0.64): moderate risk, yellow badge and meter bar
-      - Low (< 0.35): standard safe change, green badge and meter bar
+
+    Three scoring models run in the heuristic engine:
+      Model 1 — Change Risk (XGBoost proxy): log-scale size, path sensitivity,
+                 + 7 discrepancy signals (no reviewer, rapid merge, stale PR,
+                   WIP-not-draft, mass file touch, empty description, self-review)
+      Model 2 — Review Depth (DistilBERT proxy): expanded rubber stamp detection,
+                 keyword-based comment classification, request-changes penalty
+      Model 3 — Attention Baseline (Robust z-score proxy): multi-factor continuous
+                 scoring across time-of-day, weekends, reviewer velocity, review pace
+
+    Risk tiers:
+      High   (≥ 0.65): triggers re-queue — red badge
+      Medium (0.35–0.64): moderate risk — yellow badge
+      Low    (< 0.35): safe change — green badge
     """
     reviews = reviews if reviews is not None else pr_data.get("_reviews", [])
     comments = comments if comments is not None else pr_data.get("_comments", [])
@@ -234,6 +254,9 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     state = pr_data.get("state", "open")
     created_at = pr_data.get("created_at", "")
     merged_at = pr_data.get("merged_at") or pr_data.get("closed_at")
+    pr_title = (pr_data.get("title") or "").strip()
+    pr_body = (pr_data.get("body") or "").strip()
+    pr_author = (pr_data.get("user") or {}).get("login", "unknown")
 
     # Review duration
     review_duration_seconds = pr_data.get("_duration_secs", 0)
@@ -255,6 +278,33 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         else:
             review_duration_seconds = 3600
 
+    # Compute PR age in days
+    pr_age_days = 0
+    if created_at:
+        try:
+            t0 = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            pr_age_days = (datetime.now(timezone.utc) - t0).days
+        except Exception:
+            pr_age_days = 0
+
+    # Merge timestamp for hour-of-day and day-of-week (attention signal)
+    merge_hour = 12  # default: midday
+    is_weekend_merge = False
+    if merged_at:
+        try:
+            t_merge = datetime.fromisoformat(merged_at.replace("Z", "+00:00"))
+            merge_hour = t_merge.hour
+            is_weekend_merge = t_merge.weekday() >= 5  # Sat=5, Sun=6
+        except Exception:
+            pass
+    elif created_at:
+        try:
+            t_open = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            merge_hour = t_open.hour
+            is_weekend_merge = t_open.weekday() >= 5
+        except Exception:
+            pass
+
     # Sensitive paths
     sensitive_count = 0
     sensitive_files = []
@@ -265,21 +315,69 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
             sensitive_files.append(fn)
 
     if not sensitive_files:
-        title_lower = (pr_data.get("title") or "").lower()
+        title_lower = pr_title.lower()
         if SENSITIVE_PATHS.search(title_lower):
             sensitive_count = 1
             sensitive_files.append("sensitive_module")
 
-    # Reviewer
+    # Reviewer resolution
     reviewer = pr_data.get("_sim_reviewer") or pr_data.get("reviewer") or ""
     if not reviewer and reviews:
         reviewer = reviews[0].get("user", {}).get("login", "")
     elif not reviewer and pr_data.get("requested_reviewers"):
         reviewer = pr_data["requested_reviewers"][0].get("login", "")
     if not reviewer:
-        reviewer = pr_data.get("assignee", {}).get("login", "") if pr_data.get("assignee") else "collaborator"
+        reviewer = (pr_data.get("assignee") or {}).get("login", "") or "collaborator"
 
-    # Profile-driven calibration for simulated PR catalogs
+    # ─────────────────────────────────────────────────────────────────
+    # Discrepancy signals (used by all three models)
+    # ─────────────────────────────────────────────────────────────────
+
+    # Signal: no meaningful reviewer assigned
+    no_reviewer = (reviewer in ("", "collaborator") and not reviews)
+
+    # Signal: rapid merge — merged < 10 minutes after opening
+    rapid_merge = (
+        review_duration_seconds > 0
+        and review_duration_seconds < 600
+        and state == "closed"
+    )
+
+    # Signal: stale PR — open for > 30 days (complacency / context loss)
+    stale_pr = (state == "open" and pr_age_days > 30)
+
+    # Signal: WIP/DO-NOT-MERGE in title but merged
+    wip_pattern = re.compile(r"\b(wip|do\s*not\s*merge|draft|dnm|blocked|hold)\b", re.I)
+    wip_not_draft = bool(wip_pattern.search(pr_title) and state == "closed")
+
+    # Signal: mass file touch — shotgun commit touching > 15 files
+    mass_file_touch = changed_files > 15
+
+    # Signal: empty or minimal PR description (< 30 chars) for large diff
+    empty_description = len(pr_body) < 30 and total_lines > 100
+
+    # Signal: self-review — author and reviewer share the same login
+    self_review = bool(reviewer and reviewer.lower() == pr_author.lower()
+                       and reviewer != "collaborator")
+
+    # AI authorship signal (from commit message or body)
+    ai_pattern = re.compile(
+        r"(copilot|cursor|chatgpt|gpt-4|gpt4|claude|gemini|devin|aider|sweep|cody"
+        r"|autocomplete|ai-generated|auto-generated|llm|openai|codewhisperer)",
+        re.I
+    )
+    ai_authored = bool(
+        ai_pattern.search(pr_title)
+        or ai_pattern.search(pr_body[:1000])
+        or ai_pattern.search(
+            pr_data.get("head", {}).get("ref", "")
+            if isinstance(pr_data.get("head"), dict) else ""
+        )
+    )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Simulated profiles (demo catalog — preserved as-is)
+    # ─────────────────────────────────────────────────────────────────
     sim_profile = pr_data.get("_sim_profile")
     if sim_profile == "high":
         change_risk = round(0.84 + ((pr_number * 17) % 7) * 0.01, 4)
@@ -290,6 +388,8 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         time_adequacy = round(review_confidence * 0.70, 3)
         attention_state = 0.22
         reviewer_familiarity = 0.30
+        rubber_stamp_count = 0
+        has_changes_requested = False
     elif sim_profile == "medium":
         change_risk = round(0.63 + ((pr_number * 19) % 8) * 0.012, 4)
         review_confidence = round(0.39 + ((pr_number * 11) % 6) * 0.012, 4)
@@ -299,6 +399,8 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         time_adequacy = round(review_confidence * 0.80, 3)
         attention_state = 0.50
         reviewer_familiarity = 0.60
+        rubber_stamp_count = 0
+        has_changes_requested = False
     elif sim_profile == "low":
         change_risk = round(0.14 + ((pr_number * 23) % 10) * 0.015, 4)
         review_confidence = round(0.74 + ((pr_number * 7) % 8) * 0.018, 4)
@@ -308,36 +410,223 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         time_adequacy = round(review_confidence * 0.90, 3)
         attention_state = 0.75
         reviewer_familiarity = 0.85
+        rubber_stamp_count = 0
+        has_changes_requested = False
     else:
-        # Dynamic scoring for live GitHub PRs
-        size_score = min(total_lines / 600.0, 1.0)
-        path_score = min(0.65 + (sensitive_count * 0.12), 1.0) if sensitive_count > 0 else 0.05
-        file_score = min(changed_files / 12.0, 1.0)
-        change_risk = round(0.40 * path_score + 0.38 * size_score + 0.22 * file_score, 4)
-        change_risk = max(min(change_risk, 0.96), 0.06)
+        # ─────────────────────────────────────────────────────────────
+        # Model 1 — Change Risk (XGBoost heuristic proxy)
+        # ─────────────────────────────────────────────────────────────
+        # Log-scale size: prevents 600-line diff == 3000-line diff
+        size_score = min(math.log1p(total_lines) / math.log1p(800), 1.0)
 
+        # Path sensitivity: base 0.55 + 0.10 per sensitive file (capped)
+        path_score = (
+            min(0.55 + sensitive_count * 0.10, 1.0)
+            if sensitive_count > 0 else 0.04
+        )
+
+        # File breadth: saturates at 15 files
+        file_score = min(changed_files / 15.0, 1.0)
+
+        # Base change risk from structural signals
+        change_risk = round(
+            0.38 * path_score + 0.40 * size_score + 0.22 * file_score, 4
+        )
+
+        # Apply discrepancy signal adjustments to change risk
+        if no_reviewer:
+            change_risk = min(change_risk + 0.12, 0.96)
+        if rapid_merge:
+            change_risk = min(change_risk + 0.10, 0.96)
+        if stale_pr:
+            change_risk = min(change_risk + 0.07, 0.96)
+        if wip_not_draft:
+            change_risk = min(change_risk + 0.15, 0.96)
+        if mass_file_touch:
+            change_risk = min(change_risk + 0.08, 0.96)
+        if empty_description and total_lines > 200:
+            change_risk = min(change_risk + 0.06, 0.96)
+        if self_review:
+            change_risk = min(change_risk + 0.14, 0.96)
+        if ai_authored:
+            change_risk = min(change_risk + 0.05, 0.96)
+
+        change_risk = round(max(min(change_risk, 0.96), 0.04), 4)
+
+        # ─────────────────────────────────────────────────────────────
+        # Model 2 — Review Depth (DistilBERT heuristic proxy)
+        # ─────────────────────────────────────────────────────────────
         total_comments = len(comments) + (pr_data.get("review_comments", 0) or 0)
         kloc = max(total_lines / 1000.0, 0.1)
         comment_density = min(total_comments / (kloc * 5.0), 1.0)
 
-        rubber_stamps = sum(
-            1 for r in reviews
-            if r.get("state") == "APPROVED"
-            and (r.get("body") or "").strip().lower() in
-            ("", "lgtm", "lgtm!", "looks good", "looks good to me", "approved", "✅", "👍")
-        )
-        substantive_reviews = max(len(reviews) - rubber_stamps, 0)
-        if reviews:
-            depth_from_reviews = substantive_reviews / max(len(reviews), 1)
+        # Expanded rubber stamp detection (covers emoji, whitespace, markdown, phrases)
+        _RUBBER_STAMP_EXACT = frozenset({
+            "", "lgtm", "lgtm!", "lgtm :+1:", "looks good", "looks good to me",
+            "looks good!", "approved", "approve", "+1", "ack", "ship it", "shipit",
+            ":+1:", ":thumbsup:", "👍", "✅", "ok", "ok.", "ok!", "okay", "yes",
+            "done", "merged", "merge", "sure", "fine", "wfm", "great",
+            "no issues", "no comments", "no notes", "seems fine", "seems good",
+        })
+
+        def _is_rubber_stamp(body: str) -> bool:
+            cleaned = re.sub(r"[^\w\s]", " ", (body or "").strip().lower())
+            cleaned = " ".join(cleaned.split())
+            return bool(
+                cleaned in _RUBBER_STAMP_EXACT
+                or len(cleaned) < 4
+                or re.fullmatch(r"[\s\W]+", body or "")
+            )
+
+        # Keyword-based comment classification (Model 2 depth classes)
+        _DEPTH_KEYWORDS = {
+            "security": re.compile(
+                r"\b(xss|sql.inject|injection|auth|authn|csrf|cors|vuln|secur|exploit"
+                r"|sanitiz|escape|privilege|escalat|overfl|cve|owasp)\b", re.I),
+            "architecture": re.compile(
+                r"\b(architect|design|pattern|solid|coupling|cohesion|abstract|interfac"
+                r"|depend|layer|module|concern|refactor|extract|separate|decouple)\b", re.I),
+            "logic_concern": re.compile(
+                r"\b(bug|wrong|incorrect|broken|fail|error|issue|problem|crash"
+                r"|undefined|race|deadlock|leak|null|none|exception|throw|off.by)\b", re.I),
+            "test": re.compile(
+                r"\b(test|assert|coverage|mock|stub|fixture|spec|unit|integr|e2e|pytest)\b",
+                re.I),
+            "nit_style": re.compile(
+                r"\b(nit|style|format|indent|whitespace|typo|spell|lint|naming|rename"
+                r"|casing|camelcase|snakecase|const|var|unused|import)\b", re.I),
+        }
+        _DEPTH_WEIGHTS_MAP = {
+            "security": 1.00, "architecture": 0.90, "logic_concern": 0.80,
+            "test": 0.55, "clarifying": 0.45, "nit_style": 0.15, "rubber_stamp": 0.00,
+        }
+
+        def _classify_comment(body: str) -> tuple[str, float]:
+            if _is_rubber_stamp(body):
+                return "rubber_stamp", 0.00
+            for cls, pattern in _DEPTH_KEYWORDS.items():
+                if pattern.search(body):
+                    return cls, _DEPTH_WEIGHTS_MAP[cls]
+            return "clarifying", 0.45
+
+        # Classify all review comments
+        classified_comments = [
+            {
+                "body": c.get("body", ""),
+                **dict(zip(("class_name", "weight"), _classify_comment(c.get("body", "")))),
+                "path": c.get("path"),
+                "line": c.get("line"),
+            }
+            for c in comments[:5]
+        ]
+
+        # Review event analysis
+        has_approvals = False
+        has_changes_requested = False
+        has_dismissed = False
+        all_bots = True
+        reviewer_logins: set[str] = set()
+        rubber_stamp_count = 0
+
+        for r in reviews:
+            review_state = r.get("state", "")
+            review_body = r.get("body") or ""
+            review_login = (r.get("user") or {}).get("login", "")
+            is_bot = review_login.endswith("[bot]") or review_login.endswith("-bot")
+
+            if not is_bot:
+                all_bots = False
+            if review_login:
+                reviewer_logins.add(review_login)
+
+            if review_state == "APPROVED":
+                has_approvals = True
+                if _is_rubber_stamp(review_body):
+                    rubber_stamp_count += 1
+            elif review_state == "CHANGES_REQUESTED":
+                has_changes_requested = True
+            elif review_state == "DISMISSED":
+                has_dismissed = True
+
+        total_reviews = max(len(reviews), 1)
+        substantive_ratio = max(len(reviews) - rubber_stamp_count, 0) / total_reviews if reviews else 0.0
+
+        # Depth from review events
+        if not reviews:
+            depth_from_reviews = 0.05
+        elif all_bots and reviews:
+            depth_from_reviews = 0.05
+        elif has_changes_requested and state == "closed":
+            depth_from_reviews = max(substantive_ratio * 0.50, 0.05)
+        elif has_dismissed and has_approvals:
+            depth_from_reviews = max(substantive_ratio * 0.60, 0.10)
         else:
-            depth_from_reviews = 0.08 if (rubber_stamps > 0 or total_comments == 0) else 0.40
+            depth_from_reviews = substantive_ratio
 
-        depth_score = round(0.60 * comment_density + 0.40 * depth_from_reviews, 4)
-        adequate_secs = max(total_lines * 1.2, 120)
+        # Comment depth from classified comments
+        if classified_comments:
+            comment_weights = [c["weight"] for c in classified_comments]
+            comment_depth_avg = sum(comment_weights) / len(comment_weights)
+            max_comment_weight = max(comment_weights)
+            comment_depth_score = max(comment_depth_avg, max_comment_weight * 0.5)
+        else:
+            comment_depth_score = 0.0
+
+        depth_score = round(
+            0.45 * comment_density
+            + 0.35 * depth_from_reviews
+            + 0.20 * comment_depth_score,
+            4
+        )
+        if has_changes_requested and state == "closed":
+            depth_score = round(max(depth_score - 0.20, 0.02), 4)
+        depth_score = round(max(min(depth_score, 1.0), 0.0), 4)
+
+        # ─────────────────────────────────────────────────────────────
+        # Model 3 — Attention Baseline (Robust z-score heuristic proxy)
+        # ─────────────────────────────────────────────────────────────
+        attention_state = 1.0
+
+        adequate_secs = max(total_lines * 1.5, 180)
         time_adequacy = round(min(review_duration_seconds / adequate_secs, 1.0), 4)
-        attention_state = 0.22 if (rubber_stamps > 0 or review_duration_seconds < 120) else 0.65
-        reviewer_familiarity = 0.70 if reviewer in ("core", "maintainer", "lead", "dev-lead") else 0.35
 
+        if time_adequacy < 0.30:
+            attention_state -= 0.35
+        elif time_adequacy < 0.60:
+            attention_state -= 0.18
+
+        if rubber_stamp_count > 0 and reviews:
+            attention_state -= 0.20 * (rubber_stamp_count / total_reviews)
+
+        if merge_hour >= 23 or merge_hour < 6:
+            attention_state -= 0.15
+        if is_weekend_merge and sensitive_count > 0:
+            attention_state -= 0.10
+        if not reviews:
+            attention_state -= 0.30
+        if rapid_merge:
+            attention_state -= 0.25
+        if self_review:
+            attention_state -= 0.30
+        if stale_pr:
+            attention_state -= 0.08
+
+        attention_state = round(max(0.04, min(1.0, attention_state)), 4)
+
+        # Reviewer familiarity
+        _SENIOR_ROLES = frozenset({
+            "core", "maintainer", "lead", "dev-lead", "tech-lead", "owner",
+            "admin", "principal", "architect", "senior", "staff",
+        })
+        reviewer_familiarity = 0.70 if any(r in reviewer.lower() for r in _SENIOR_ROLES) else 0.35
+        if len(reviewer_logins) >= 2:
+            reviewer_familiarity = min(reviewer_familiarity + 0.15, 1.0)
+        if no_reviewer:
+            reviewer_familiarity = 0.10
+
+        # ─────────────────────────────────────────────────────────────
+        # Residual risk composition
+        # ─────────────────────────────────────────────────────────────
         review_confidence = round(
             0.40 * depth_score
             + 0.25 * time_adequacy
@@ -345,68 +634,136 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
             + 0.10 * reviewer_familiarity,
             4,
         )
-        review_confidence = max(min(review_confidence, 0.95), 0.08)
+        review_confidence = round(max(min(review_confidence, 0.95), 0.04), 4)
         residual_risk = round(change_risk * (1.0 - review_confidence), 4)
-        residual_risk = max(min(residual_risk, 0.96), 0.02)
+        residual_risk = round(max(min(residual_risk, 0.96), 0.02), 4)
         re_queued = residual_risk >= 0.65
 
     risk_tier = _risk_tier(residual_risk)
 
-    # Human-readable explanation
+    # ─────────────────────────────────────────────────────────────────
+    # Rule-based narrative explanation
+    # ─────────────────────────────────────────────────────────────────
     mins = review_duration_seconds // 60
     dur_str = f"{mins}m" if mins > 0 else f"{review_duration_seconds}s"
+
+    _findings: list[str] = []
+    if sensitive_count > 0:
+        _findings.append(f"{sensitive_count} sensitive path(s)")
+    if wip_not_draft:
+        _findings.append("WIP merged")
+    if rapid_merge:
+        _findings.append(f"merged in {dur_str}")
+    if no_reviewer:
+        _findings.append("no reviewer assigned")
+    if self_review:
+        _findings.append("self-approved")
+    if not sim_profile:
+        if rubber_stamp_count > 0:
+            _findings.append(f"{rubber_stamp_count} rubber-stamp approval(s)")
+        if has_changes_requested and state == "closed":
+            _findings.append("merged with pending change requests")
+    _finding_str = "; ".join(_findings) if _findings else "standard change"
 
     if state == "open":
         if re_queued:
             explanation = (
-                f"Active PR #{pr_number}: A {total_lines}-line diff across {changed_files} files "
-                f"({sensitive_count} sensitive paths) with {len(comments)} comments. "
-                f"Residual risk ({residual_risk:.2f}) exceeds threshold (0.65); senior re-review is required before merge."
+                f"Active PR #{pr_number}: {total_lines}-line diff across {changed_files} file(s) "
+                f"({_finding_str}). "
+                f"Residual risk {residual_risk:.2f} exceeds 0.65 — senior re-review required before merge."
             )
         elif risk_tier == "medium":
             explanation = (
-                f"Active PR #{pr_number}: A {total_lines}-line diff currently in review with {len(comments)} comments. "
-                f"Residual risk ({residual_risk:.2f}) is moderate; validation recommended before merge."
+                f"Active PR #{pr_number}: {total_lines}-line diff in review ({_finding_str}). "
+                f"Residual risk {residual_risk:.2f} is moderate — validation recommended before merge."
             )
         else:
             explanation = (
-                f"Active PR #{pr_number}: A {total_lines}-line diff in progress ({dur_str} elapsed). "
-                f"Residual risk ({residual_risk:.2f}) is low; review depth is within safety bounds."
+                f"Active PR #{pr_number}: {total_lines}-line diff open for {dur_str} ({_finding_str}). "
+                f"Residual risk {residual_risk:.2f} is low — review depth is within safety bounds."
             )
     else:
         if re_queued:
             explanation = (
-                f"Merged PR #{pr_number}: A {total_lines}-line diff touching {changed_files} files "
-                f"({sensitive_count} sensitive areas) was merged with low review confidence ({review_confidence*100:.0f}%). "
-                f"Residual risk ({residual_risk:.2f}) triggers re-queue for retrospective safety audit."
+                f"Merged PR #{pr_number}: {total_lines}-line diff touching {changed_files} file(s) "
+                f"({_finding_str}) merged with {review_confidence*100:.0f}% confidence. "
+                f"Residual risk {residual_risk:.2f} triggers re-queue for retrospective safety audit."
             )
         elif risk_tier == "medium":
             explanation = (
-                f"Merged PR #{pr_number}: A {total_lines}-line change reviewed in {dur_str}. "
-                f"Residual risk ({residual_risk:.2f}) is medium with standard sign-off coverage."
+                f"Merged PR #{pr_number}: {total_lines}-line change reviewed in {dur_str} "
+                f"({_finding_str}). Residual risk {residual_risk:.2f} is medium — standard sign-off coverage."
             )
         else:
             explanation = (
-                f"Merged PR #{pr_number}: A {total_lines}-line change thoroughly reviewed in {dur_str} "
-                f"({review_confidence*100:.0f}% confidence). Residual risk ({residual_risk:.2f}) is safely resolved."
+                f"Merged PR #{pr_number}: {total_lines}-line change reviewed in {dur_str} "
+                f"({review_confidence*100:.0f}% confidence, {_finding_str}). "
+                f"Residual risk {residual_risk:.2f} is safely resolved."
             )
 
-    top_features = []
+    # ─────────────────────────────────────────────────────────────────
+    # Top features — actual signal contributors
+    # ─────────────────────────────────────────────────────────────────
+    top_features: list[dict] = []
+    top_features.append({
+        "feature": "diff_size",
+        "contribution": round(min(math.log1p(total_lines) / math.log1p(800), 1.0) * 0.40, 3),
+    })
+    if depth_score < 0.35:
+        top_features.append({
+            "feature": "shallow_review_depth",
+            "contribution": round((1.0 - depth_score) * 0.35, 3),
+        })
     if sensitive_count > 0:
-        top_features.append({"feature": "sensitive_paths", "contribution": round(change_risk * 0.42, 3)})
-    top_features.append({"feature": "diff_size", "contribution": round(change_risk * 0.35, 3)})
-    top_features.append({"feature": "review_timing", "contribution": round((1.0 - review_confidence) * 0.30, 3)})
+        top_features.append({
+            "feature": "sensitive_paths",
+            "contribution": round(sensitive_count * 0.10 * change_risk, 3),
+        })
+    if no_reviewer:
+        top_features.append({"feature": "no_reviewer_assigned", "contribution": 0.12})
+    if rapid_merge:
+        top_features.append({"feature": "rapid_merge", "contribution": 0.10})
+    if self_review:
+        top_features.append({"feature": "self_review", "contribution": 0.14})
+    if wip_not_draft:
+        top_features.append({"feature": "wip_merged", "contribution": 0.15})
+    if empty_description:
+        top_features.append({"feature": "empty_description", "contribution": 0.06})
+    if mass_file_touch:
+        top_features.append({"feature": "mass_file_touch", "contribution": 0.08})
+    if ai_authored:
+        top_features.append({"feature": "ai_authored", "contribution": 0.05})
+    top_features.sort(key=lambda x: x["contribution"], reverse=True)
+    top_features = top_features[:5]
 
     status = "re_queued" if re_queued else ("active" if state == "open" else "closed")
     html_url = pr_data.get("html_url") or f"https://github.com/{repo_full}/pull/{pr_number}"
+
+    # Comment display list
+    if not sim_profile and classified_comments:
+        display_comments = classified_comments
+    elif not sim_profile and comments:
+        display_comments = [
+            {
+                "body": c.get("body", ""),
+                **dict(zip(("class_name", "weight"), _classify_comment(c.get("body", "")))),
+                "path": c.get("path"),
+                "line": c.get("line"),
+            }
+            for c in comments[:5]
+        ]
+    elif re_queued:
+        display_comments = [{"body": "LGTM", "class_name": "rubber_stamp", "weight": 0.0, "path": None}]
+    else:
+        display_comments = [{"body": f"Review active on #{pr_number}", "class_name": "general", "weight": 0.35, "path": None}]
 
     scored_dict = {
         "pr_key": f"{repo_full}#{pr_number}",
         "pr_url": html_url,
         "repo": repo_full,
         "pr_number": pr_number,
-        "title": pr_data.get("title", ""),
-        "author": (pr_data.get("user") or {}).get("login", "unknown"),
+        "title": pr_title or pr_data.get("title", ""),
+        "author": pr_author,
         "reviewer": reviewer,
         "created_at": created_at,
         "merged_at": merged_at if state == "closed" else None,
@@ -422,21 +779,10 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         "status": status,
         "re_queued": re_queued,
         "explanation": explanation,
+        "bedrock_status": "disconnected",   # Bedrock is currently unavailable
+        "bedrock_explanation": None,        # Set by explain/ when Bedrock is reachable
         "top_features": top_features,
-        "comments": [
-            {
-                "body": c.get("body", ""),
-                "class_name": "clarifying",
-                "weight": 0.45,
-                "path": c.get("path"),
-                "line": c.get("line"),
-            }
-            for c in comments[:5]
-        ] if comments else (
-            [{"body": "LGTM", "class_name": "rubber_stamp", "weight": 0.0, "path": None}]
-            if re_queued else
-            [{"body": f"Review active on #{pr_number}", "class_name": "general", "weight": 0.35, "path": None}]
-        ),
+        "comments": display_comments,
         "diff_lines": total_lines,
         "review_duration_seconds": review_duration_seconds,
         "consecutive_reviews": 1 if re_queued else 0,
@@ -448,7 +794,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         "additions": additions,
         "deletions": deletions,
         "changed_files": changed_files,
-        "body": pr_data.get("body") or "",
+        "body": pr_body,
         "conversation": pr_data.get("conversation", []),
         "comments_count": pr_data.get("comments_count", pr_data.get("_comments_count", len(comments))),
         "live": True,
@@ -459,7 +805,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
 
 
 def _cache_scored_pr(pr_dict: dict) -> None:
-    """Store scored PR strictly under repository-scoped keys to avoid cross-repo collision."""
+    """Store scored PR strictly under repository-scoped keys to avoid cross-repo collision and persist to store."""
     repo = pr_dict.get("repo", "")
     num = pr_dict.get("pr_number", 0)
     if repo and num:
@@ -467,6 +813,10 @@ def _cache_scored_pr(pr_dict: dict) -> None:
         LIVE_PRS_CACHE[f"{repo}#{num}"] = pr_dict
         LIVE_PRS_CACHE[f"{repo.lower()}/{num}"] = pr_dict
         LIVE_PRS_CACHE[f"{repo.lower()}#{num}"] = pr_dict
+        try:
+            store.save_pr(pr_dict)
+        except Exception:
+            pass
 
 
 def _is_within_30_days(date_str: str | None) -> bool:
@@ -479,175 +829,6 @@ def _is_within_30_days(date_str: str | None) -> bool:
         return (now - dt).total_seconds() <= 30 * 86400
     except Exception:
         return False
-
-
-REPO_SPECIFIC_PR_SPECS: dict[str, dict] = {
-    "facebook/react": {
-        "base_num": 31200,
-        "items": [
-            ("[ACTIVE] Fix useActionState transition cancellation during high priority updates", "packages/react-reconciler/src/ReactFiberWorkLoop.js", "open", 1, 380, 95, "acdlite", "sebmarkbage", "high", 0, 45),
-            ("Refactor Server Components flight protocol buffer deserializer", "packages/react-client/src/ReactFlightClient.js", "closed", 2, 620, 180, "sebmarkbage", "acdlite", "high", 1, 90),
-            ("Deprecate legacy context fallback in developmental fiber validation", "packages/react/src/ReactContext.js", "closed", 3, 95, 40, "gaearon", "sophiebits", "low", 4, 7200),
-            ("[ACTIVE] Optimize compiler memoization bailout for inline closure props", "compiler/packages/babel-plugin-react-compiler/src/HIR/BuildHIR.ts", "open", 4, 480, 130, "josephsavona", "mvitousek", "medium", 2, 1800),
-            ("Fix hydration mismatch warning formatting when dom nesting is invalid", "packages/react-dom/src/client/ReactDOMComponent.js", "closed", 5, 120, 50, "sophiebits", "rickhanlonii", "low", 5, 5400),
-            ("Prevent memory leak in Suspense hydration boundary timeout fallback", "packages/react-reconciler/src/ReactFiberHydrationContext.js", "closed", 6, 440, 110, "acdlite", "bvaughn", "high", 0, 60),
-            ("[ACTIVE] Support View Transitions API in React DOM root concurrent render", "packages/react-dom/src/client/ReactDOMRoot.js", "open", 7, 310, 80, "rickhanlonii", "acdlite", "medium", 3, 2400),
-            ("Fix useId collision in concurrent server rendering with stream chunks", "packages/react-server/src/ReactServerStream.js", "closed", 8, 290, 70, "sebmarkbage", "gnoff", "high", 1, 85),
-            ("Update documentation and release notes for React 19.1 RC", "README.md", "closed", 9, 45, 10, "trueadm", "gaearon", "low", 1, 9000),
-            ("[ACTIVE] Improve error boundary recovery retry semantics in act() environment", "packages/react-reconciler/src/ReactFiberErrorLogger.js", "open", 10, 210, 55, "eps1lon", "sophiebits", "medium", 2, 3600),
-            ("Optimize JSX element creation runtime allocations in dev environment", "packages/react/src/jsx/ReactJSXElement.js", "closed", 11, 160, 45, "gnoff", "sebmarkbage", "low", 3, 4800),
-            ("Sanitize synthetic event dispatch loop against detached iframe access", "packages/react-dom/src/events/DOMPluginEventSystem.js", "closed", 12, 350, 90, "necolas", "acdlite", "high", 0, 70),
-            ("[ACTIVE] Add micro-benchmark suite for concurrent transition scheduler", "fixtures/flight/src/index.js", "open", 13, 190, 30, "bvaughn", "josephsavona", "low", 2, 4200),
-            ("Fix useEffect cleanup ordering when parent and child unmount simultaneously", "packages/react-reconciler/src/ReactFiberCommitWork.js", "closed", 14, 275, 65, "acdlite", "sebmarkbage", "medium", 3, 3100),
-            ("[ACTIVE] Propagate async server action context across flight stream boundaries", "packages/react-server/src/ReactFlightServer.js", "open", 16, 510, 140, "sebmarkbage", "acdlite", "high", 1, 110),
-            ("Clarify Server Actions form state documentation and examples", "docs/server-actions.md", "closed", 18, 55, 12, "rickhanlonii", "gaearon", "low", 2, 6000),
-            ("Fix stale closure in useSyncExternalStore during concurrent re-renders", "packages/react-reconciler/src/ReactFiberHooks.js", "closed", 20, 240, 60, "trueadm", "acdlite", "medium", 3, 2700),
-            ("[ACTIVE] Implement Fast Refresh support for React Compiler transformed hooks", "packages/react-refresh/src/ReactFreshRuntime.js", "open", 22, 330, 85, "josephsavona", "mvitousek", "medium", 2, 2100),
-            ("Fix DOM node reference retention in synthetic clipboard event pool", "packages/react-dom/src/events/SyntheticEvent.js", "closed", 24, 130, 35, "sophiebits", "rickhanlonii", "low", 4, 5000),
-            ("Refactor lane priority calculation for continuous input events", "packages/react-reconciler/src/ReactFiberLane.js", "closed", 26, 380, 95, "acdlite", "sebmarkbage", "medium", 4, 3800),
-            ("[ACTIVE] Add trace measurement marks for DevTools interaction timelines", "packages/react-devtools-shared/src/devtools.js", "open", 28, 145, 40, "bvaughn", "acdlite", "low", 1, 4600),
-            ("Fix passive effect destruction loop on aborted unmount transitions", "packages/react-reconciler/src/ReactFiberWorkLoop.js", "closed", 30, 420, 105, "sebmarkbage", "acdlite", "high", 0, 50),
-            ("Normalize CSS style property vendor prefix capitalization in ReactDOM", "packages/react-dom/src/shared/CSSPropertyOperations.js", "closed", 33, 85, 20, "gaearon", "sophiebits", "low", 3, 7200),
-            ("[ACTIVE] Support streaming async iterables in React Server Components response", "packages/react-server/src/ReactServerStreamConfigNode.js", "open", 36, 490, 125, "gnoff", "sebmarkbage", "medium", 3, 2900),
-            ("Fix focus restoration failure when unmounting modal portals", "packages/react-dom/src/client/ReactDOMHostConfig.js", "closed", 40, 175, 45, "rickhanlonii", "acdlite", "medium", 2, 3300),
-            ("Update Flow type definitions for Activity and SuspenseList components", "packages/react/src/ReactActivity.js", "closed", 45, 60, 15, "trueadm", "sophiebits", "low", 2, 5900),
-            ("Fix offscreen component display style toggle during hydration", "packages/react-reconciler/src/ReactFiberCompleteWork.js", "closed", 52, 230, 60, "acdlite", "sebmarkbage", "medium", 3, 3500),
-            ("Deprecate legacy string ref warnings in production build pipelines", "packages/react/src/ReactElement.js", "closed", 60, 40, 10, "gaearon", "rickhanlonii", "low", 2, 8000),
-        ]
-    },
-    "pallets/flask": {
-        "base_num": 5480,
-        "items": [
-            ("[ACTIVE] Sanitize session cookie domain validation to prevent subdomain fixation", "src/flask/sessions.py", "open", 1, 310, 75, "davidism", "pgjones", "high", 0, 40),
-            ("Fix context locals leak when handling streaming generator response exceptions", "src/flask/ctx.py", "closed", 2, 450, 110, "pgjones", "davidism", "high", 1, 80),
-            ("Clarify blueprint url_prefix precedence in nested registration docs", "docs/blueprints.rst", "closed", 3, 35, 10, "pallets-bot", "davidism", "low", 3, 7200),
-            ("[ACTIVE] Add support for async signals dispatch with blinker 1.9+", "src/flask/signals.py", "open", 4, 220, 50, "pgjones", "untitaker", "medium", 2, 1900),
-            ("Allow custom JSON decoder instance in app.json.loads override", "src/flask/json/provider.py", "closed", 5, 85, 20, "untitaker", "davidism", "low", 4, 5200),
-            ("Fix secret key rotation fallback during session decryption", "src/flask/sessions.py", "closed", 6, 380, 90, "davidism", "pgjones", "high", 0, 55),
-            ("[ACTIVE] Optimize route matching trie cache for repeated dynamic url lookups", "src/flask/routing.py", "open", 7, 260, 65, "davidism", "untitaker", "medium", 3, 2500),
-            ("Ensure teardown_appcontext executes reliably on unhandled worker timeouts", "src/flask/app.py", "closed", 8, 340, 85, "mitsuhiko", "davidism", "high", 1, 95),
-            ("Update tutorial on application factories and blueprint patterns", "docs/tutorial/factory.rst", "closed", 9, 45, 12, "pallets-bot", "davidism", "low", 2, 8500),
-            ("[ACTIVE] Support Werkzeug 3.1 HTTP range request handling for send_file", "src/flask/helpers.py", "open", 10, 180, 40, "davidism", "pgjones", "medium", 2, 3200),
-            ("Refactor CLI click runner to preserve custom logging configurations", "src/flask/cli.py", "closed", 11, 140, 35, "untitaker", "davidism", "low", 3, 4400),
-            ("Prevent host header poisoning in url_for external URL generation", "src/flask/helpers.py", "closed", 12, 290, 70, "pgjones", "davidism", "high", 0, 65),
-            ("[ACTIVE] Add pytest fixture helper for async test client request dispatch", "src/flask/testing.py", "open", 13, 175, 30, "davidism", "pgjones", "low", 2, 3800),
-            ("Fix blueprint static folder resolution when package has nested namespace", "src/flask/blueprints.py", "closed", 14, 210, 55, "davidism", "untitaker", "medium", 3, 2800),
-            ("[ACTIVE] Sanitize redirect parameter in abort(302) to prevent open redirects", "src/flask/helpers.py", "open", 16, 320, 80, "pgjones", "davidism", "high", 1, 105),
-            ("Clarify request lifecycle hooks execution order in documentation", "docs/lifecycle.rst", "closed", 18, 50, 15, "pallets-bot", "davidism", "low", 2, 6200),
-            ("Fix JSONProvider date formatting when timezone aware datetimes are dumped", "src/flask/json/provider.py", "closed", 20, 115, 25, "untitaker", "davidism", "low", 3, 4900),
-            ("[ACTIVE] Implement streaming response chunk cancellation when client disconnects", "src/flask/wrappers.py", "open", 22, 275, 70, "davidism", "pgjones", "medium", 3, 2200),
-            ("Preserve custom exception handler response headers on unhandled errors", "src/flask/app.py", "closed", 24, 160, 40, "mitsuhiko", "davidism", "medium", 2, 3600),
-            ("Optimize url_rule map compilation for large route tables", "src/flask/routing.py", "closed", 26, 310, 85, "davidism", "untitaker", "medium", 3, 2900),
-            ("Update quickstart installation guide for Python 3.13 support", "docs/quickstart.rst", "closed", 28, 40, 8, "pallets-bot", "davidism", "low", 1, 8800),
-            ("[ACTIVE] Support ASGI lifespan protocol in Flask run development server", "src/flask/cli.py", "open", 30, 240, 60, "pgjones", "davidism", "medium", 2, 2700),
-            ("Fix template reload detection when templates directory is a symlink", "src/flask/templating.py", "closed", 33, 95, 20, "untitaker", "davidism", "low", 2, 5400),
-            ("Refactor config.from_prefixed_env to parse nested JSON environment variables", "src/flask/config.py", "closed", 36, 185, 45, "davidism", "pgjones", "medium", 3, 3100),
-            ("[ACTIVE] Add diagnostic telemetry hook for slow template renders", "src/flask/signals.py", "open", 40, 150, 35, "mitsuhiko", "davidism", "low", 1, 4100),
-            ("Fix cookie SameSite=None attribute stripping on insecure transport", "src/flask/sessions.py", "closed", 45, 205, 50, "pgjones", "davidism", "medium", 2, 3400),
-            ("Update typing annotations for custom Response and Request subclasses", "src/flask/typing.py", "closed", 52, 130, 30, "davidism", "untitaker", "low", 3, 6500),
-            ("Deprecate legacy locked cached property helper in favor of standard functools", "src/flask/helpers.py", "closed", 60, 45, 12, "pallets-bot", "davidism", "low", 2, 7800),
-        ]
-    },
-    "kubernetes/kubernetes": {
-        "base_num": 128540,
-        "items": [
-            ("[ACTIVE] Fix retry backoff overflow in scheduler pod binding", "pkg/scheduler/binding.go", "open", 1, 420, 95, "aojea", "thockin", "high", 0, 50),
-            ("Add token refresh grace period to API server auth middleware", "pkg/kubeapiserver/authenticator/token.go", "closed", 2, 510, 120, "dims", "deads2k", "high", 1, 85),
-            ("Update kubectl describe node formatting for non-root containers", "pkg/kubectl/cmd/describe.go", "closed", 3, 40, 10, "k8s-ci-robot", "soltysh", "low", 4, 8000),
-            ("[ACTIVE] Cgroup v2 memory throttling enforcement in Kubelet container manager", "pkg/kubelet/cm/cgroup_manager_linux.go", "open", 4, 380, 90, "mrunalp", "thockin", "high", 0, 65),
-            ("Refactor lease controller renewal loop to use jittered backoff", "pkg/controller/lease/lease_controller.go", "closed", 5, 230, 55, "wojtek-t", "liggitt", "medium", 3, 2600),
-            ("Fix admission webhook timeout escalation during master failover", "pkg/controlplane/apiserver.go", "closed", 6, 460, 115, "liggitt", "deads2k", "high", 1, 90),
-            ("[ACTIVE] Optimize pod scheduling preemption queue lock contention", "pkg/scheduler/framework/plugins/defaultpreemption.go", "open", 7, 340, 80, "cheftako", "aojea", "medium", 2, 2300),
-            ("Fix secret decryption cache invalidation when KMS plugin rotates keys", "pkg/kubeapiserver/authenticator/kms.go", "closed", 8, 395, 95, "deads2k", "liggitt", "high", 0, 55),
-            ("Clarify PodDisruptionBudget uncounted terms in user documentation", "docs/concepts/workloads/pods/disruptions.md", "closed", 9, 50, 15, "k8s-ci-robot", "soltysh", "low", 2, 9200),
-            ("[ACTIVE] Support dual-stack IPv6 multicast routes in kube-proxy nftables backend", "pkg/proxy/nftables/proxier.go", "open", 10, 480, 130, "thockin", "aojea", "medium", 3, 3100),
-            ("Prevent goroutine leak in watch stream keepalive channel on client terminate", "staging/src/k8s.io/client-go/rest/request.go", "closed", 11, 210, 45, "wojtek-t", "dims", "medium", 3, 2800),
-            ("Sanitize node name input in CSI volume attachment authorization checks", "pkg/volume/csi/csi_attacher.go", "closed", 12, 330, 75, "liggitt", "thockin", "high", 0, 75),
-            ("[ACTIVE] Add e2e conformance tests for dynamic resource allocation (DRA)", "test/e2e/dra/dra.go", "open", 13, 290, 40, "pohly", "cheftako", "low", 2, 4500),
-            ("Fix Kubelet volume unmount deadlock when pod teardown races container exit", "pkg/kubelet/volumemanager/reconciler/reconciler.go", "closed", 14, 370, 85, "jsafrane", "thockin", "medium", 3, 2900),
-            ("[ACTIVE] Enforce PodSecurity admission audit annotations on subresource updates", "pkg/security/podsecurity/admission.go", "open", 16, 260, 60, "tallclair", "liggitt", "medium", 2, 2400),
-            ("Update kubeadm init phases documentation for custom etcd clusters", "docs/setup/production-environment/tools/kubeadm/init-phases.md", "closed", 18, 45, 12, "neolit123", "k8s-ci-robot", "low", 1, 7500),
-            ("Fix resource quota calculation for ephemeral storage in init containers", "pkg/quota/v1/evaluator/core/pods.go", "closed", 20, 190, 45, "derekwaynecarr", "soltysh", "low", 3, 4900),
-            ("[ACTIVE] Support user namespaces in containerd runtime handler via Kubelet CRI", "pkg/kubelet/kuberuntime/kuberuntime_container.go", "open", 22, 520, 140, "mrunalp", "dims", "medium", 3, 3300),
-            ("Fix etcd client dialer connection leak during rapid endpoint healthchecks", "staging/src/k8s.io/apiserver/pkg/storage/etcd3/compact.go", "closed", 24, 280, 65, "wojtek-t", "liggitt", "medium", 2, 3100),
-            ("Refactor horizontal pod autoscaler stabilization window calculation", "pkg/controller/podautoscaler/horizontal.go", "closed", 26, 240, 50, "maciekpytel", "soltysh", "low", 3, 5200),
-            ("Update metric descriptions in kube-scheduler prometheus registry", "pkg/scheduler/metrics/metrics.go", "closed", 28, 65, 15, "cheftako", "k8s-ci-robot", "low", 1, 8600),
-            ("[ACTIVE] Handle graceful node shutdown cancellation when systemd inhibitor fails", "pkg/kubelet/nodeshutdown/nodeshutdown_manager_linux.go", "open", 30, 310, 70, "bswartz", "mrunalp", "medium", 2, 2800),
-            ("Fix service account token projected volume permission mode in SELinux", "pkg/kubelet/token/token_manager.go", "closed", 33, 225, 55, "tallclair", "liggitt", "medium", 3, 3400),
-            ("Optimize memory allocations in apiserver JSON deserialization fast-path", "staging/src/k8s.io/apimachinery/pkg/runtime/serializer/json/json.go", "closed", 36, 350, 90, "wojtek-t", "dims", "medium", 3, 3000),
-            ("Fix client-go exponential backoff reset on transient 429 TooManyRequests", "staging/src/k8s.io/client-go/util/retry/util.go", "closed", 40, 140, 30, "liggitt", "wojtek-t", "low", 2, 6000),
-            ("Update code generator scripts for Kubernetes API v1.33 types", "hack/update-codegen.sh", "closed", 45, 80, 25, "sttts", "k8s-ci-robot", "low", 1, 7900),
-            ("[ACTIVE] Implement topology-aware volume binding delay timeout in scheduler", "pkg/scheduler/framework/plugins/volumetopology/volume_topology.go", "open", 52, 280, 65, "jsafrane", "cheftako", "medium", 2, 2700),
-            ("Deprecate legacy cloud provider flag in kubelet arguments parsing", "cmd/kubelet/app/options/options.go", "closed", 60, 50, 15, "dims", "thockin", "low", 2, 8500),
-        ]
-    },
-    "fastapi/fastapi": {
-        "base_num": 11580,
-        "items": [
-            ("[ACTIVE] Sanitize OAuth2 password bearer token validation against timing attacks", "fastapi/security/oauth2.py", "open", 1, 290, 65, "tiangolo", "Kludex", "high", 0, 40),
-            ("Fix OpenAPI schema generation for Union types in Pydantic v2 nested models", "fastapi/openapi/utils.py", "closed", 2, 380, 95, "tiangolo", "dmontagu", "medium", 2, 2100),
-            ("Update tutorial on OAuth2 password flow with JWT tokens expiration", "docs/en/docs/tutorial/security/oauth2-jwt.md", "closed", 3, 45, 12, "tiangolo", "yezz123", "low", 4, 8200),
-            ("[ACTIVE] Fix dependency yield generator cleanup on client disconnect during streaming", "fastapi/dependencies/utils.py", "open", 4, 410, 105, "Kludex", "tiangolo", "high", 0, 55),
-            ("Add background task exception logging when using custom lifespan handler", "fastapi/applications.py", "closed", 5, 175, 40, "Kludex", "tiangolo", "low", 3, 5600),
-            ("Prevent memory leak in custom response encoder when handling circular references", "fastapi/encoders.py", "closed", 6, 360, 85, "dmontagu", "tiangolo", "high", 1, 85),
-            ("[ACTIVE] Optimize route matching and parameter parsing for WebSocket endpoints", "fastapi/routing.py", "open", 7, 280, 70, "tiangolo", "Kludex", "medium", 2, 2400),
-            ("Fix CORS preflight response headers omission on 401 Unauthorized exceptions", "fastapi/middleware/cors.py", "closed", 8, 320, 75, "yezz123", "tiangolo", "high", 0, 65),
-            ("Clarify dependency overrides in test client documentation", "docs/en/docs/advanced/testing-dependencies.md", "closed", 9, 50, 15, "tiangolo", "dmontagu", "low", 2, 7900),
-            ("[ACTIVE] Support PEP 695 type alias syntax in response_model annotations", "fastapi/dependencies/models.py", "open", 10, 240, 55, "dmontagu", "Kludex", "medium", 3, 2900),
-            ("Preserve custom status code on HTTPException subclasses in exception handlers", "fastapi/exception_handlers.py", "closed", 11, 130, 30, "Kludex", "tiangolo", "low", 3, 4900),
-            ("Fix security scope verification bypass in nested security dependencies", "fastapi/security/base.py", "closed", 12, 310, 70, "tiangolo", "Kludex", "high", 1, 95),
-            ("[ACTIVE] Add automated benchmark suite for Starlette ASGI request dispatch", "benchmarks/test_routing.py", "open", 13, 190, 35, "yezz123", "tiangolo", "low", 1, 4100),
-            ("Fix request body validation error response formatting for bulk JSON array", "fastapi/dependencies/utils.py", "closed", 14, 220, 50, "dmontagu", "tiangolo", "medium", 2, 2800),
-            ("[ACTIVE] Sanitize header values in redirect responses against CRLF injection", "fastapi/responses.py", "open", 16, 295, 65, "Kludex", "tiangolo", "high", 0, 50),
-            ("Update tutorial on background tasks and Celery integration patterns", "docs/en/docs/tutorial/background-tasks.md", "closed", 18, 55, 10, "tiangolo", "yezz123", "low", 2, 6500),
-            ("Fix form-data file upload temporary file descriptor leak on aborted request", "fastapi/datastructures.py", "closed", 20, 260, 60, "tiangolo", "Kludex", "medium", 3, 3100),
-            ("[ACTIVE] Support Pydantic v2 computed_field serialization in response models", "fastapi/openapi/models.py", "open", 22, 310, 75, "dmontagu", "tiangolo", "medium", 2, 2600),
-            ("Normalize swagger-ui CDN asset bundle fallback URLs", "fastapi/openapi/docs.py", "closed", 24, 75, 18, "yezz123", "tiangolo", "low", 3, 5300),
-            ("Optimize dependency injection tree resolution caching across concurrent requests", "fastapi/routing.py", "closed", 26, 340, 80, "tiangolo", "dmontagu", "medium", 3, 3200),
-            ("Add typing hints for lifespan state context management", "fastapi/applications.py", "closed", 28, 110, 25, "Kludex", "tiangolo", "low", 2, 5800),
-            ("[ACTIVE] Support streaming JSON response formatting with custom encoders", "fastapi/responses.py", "open", 30, 250, 55, "tiangolo", "Kludex", "medium", 2, 2500),
-            ("Fix path parameter regex pattern escaping in OpenAPI schema generation", "fastapi/openapi/utils.py", "closed", 33, 140, 35, "dmontagu", "tiangolo", "low", 2, 4700),
-            ("Refactor query parameter default value unwrapping for Optional types", "fastapi/dependencies/utils.py", "closed", 36, 185, 45, "Kludex", "tiangolo", "medium", 3, 3000),
-            ("Update quickstart tutorial on async database sessions with SQLAlchemy 2.0", "docs/en/docs/tutorial/sql-databases.md", "closed", 40, 65, 15, "tiangolo", "yezz123", "low", 2, 7500),
-            ("Fix Cookie parameter SameSite handling in security schemes", "fastapi/security/api_key.py", "closed", 45, 215, 50, "tiangolo", "Kludex", "medium", 2, 3300),
-            ("Deprecate legacy WSGIMiddleware import path in favor of a2wsgi recommendation", "fastapi/middleware/wsgi.py", "closed", 52, 40, 10, "Kludex", "tiangolo", "low", 2, 8200),
-            ("Clarify OAuth2 refresh token flow recommendations in official docs", "docs/en/docs/tutorial/security/oauth2-jwt.md", "closed", 60, 45, 12, "yezz123", "tiangolo", "low", 1, 8800),
-        ]
-    },
-    "psf/requests": {
-        "base_num": 6740,
-        "items": [
-            ("[ACTIVE] Fix proxy authorization header stripping on HTTPS to HTTP redirect downgrade", "src/requests/sessions.py", "open", 1, 310, 70, "sigmavirus24", "sethmlarson", "high", 0, 45),
-            ("Bump urllib3 compatibility matrix and patch chunked transfer boundary", "src/requests/adapters.py", "closed", 2, 280, 60, "sethmlarson", "nateprewitt", "medium", 2, 2300),
-            ("Fix RequestsCookieJar.popitem() key-value tuple unpacking under Python 3.13", "src/requests/cookies.py", "closed", 3, 40, 10, "nateprewitt", "sigmavirus24", "low", 4, 7600),
-            ("[ACTIVE] Prevent SSL connection reuse after cert validation failure in HTTPAdapter", "src/requests/adapters.py", "open", 4, 380, 90, "sethmlarson", "sigmavirus24", "high", 0, 50),
-            ("Add SSL verification troubleshooting guide to official docs", "docs/user/advanced.rst", "closed", 5, 75, 15, "kennethreitz", "nateprewitt", "low", 3, 8500),
-            ("Fix Digest auth nonce count cache race condition under high concurrency", "src/requests/auth.py", "closed", 6, 340, 80, "sigmavirus24", "sethmlarson", "high", 1, 85),
-            ("[ACTIVE] Optimize connection pool retry backoff calculation for 503 responses", "src/requests/adapters.py", "open", 7, 210, 45, "sethmlarson", "nateprewitt", "medium", 2, 2700),
-            ("Prevent credentials leak in Authorization header during cross-origin redirects", "src/requests/sessions.py", "closed", 8, 360, 85, "sigmavirus24", "lukasa", "high", 0, 60),
-            ("Clarify prepared request body serialization in developer docs", "docs/dev/internals.rst", "closed", 9, 45, 10, "kennethreitz", "sigmavirus24", "low", 2, 9000),
-            ("[ACTIVE] Support custom SSLContext ALPN protocols negotiation in adapter", "src/requests/adapters.py", "open", 10, 260, 60, "sethmlarson", "sigmavirus24", "medium", 3, 3100),
-            ("Refactor hooks dispatch to preserve custom response hook modifications", "src/requests/hooks.py", "closed", 11, 120, 25, "nateprewitt", "sethmlarson", "low", 3, 5100),
-            ("Fix stream response socket leak when Response.close() is not called in generator", "src/requests/models.py", "closed", 12, 330, 75, "lukasa", "sigmavirus24", "high", 1, 95),
-            ("[ACTIVE] Add automated integration tests for HTTP proxy basic auth against squid", "tests/test_proxy.py", "open", 13, 180, 30, "nateprewitt", "sethmlarson", "low", 2, 4200),
-            ("Fix urllib3 pool cleanup when Session is closed in separate worker thread", "src/requests/sessions.py", "closed", 14, 240, 55, "sethmlarson", "sigmavirus24", "medium", 2, 2900),
-            ("[ACTIVE] Sanitize URL fragments before sending HTTP/1.1 request line", "src/requests/models.py", "open", 16, 290, 65, "sigmavirus24", "sethmlarson", "high", 0, 55),
-            ("Update quickstart session usage examples in official documentation", "docs/user/quickstart.rst", "closed", 18, 50, 12, "kennethreitz", "nateprewitt", "low", 2, 6800),
-            ("Fix content-type header overwrite when sending multipart/form-data with custom boundary", "src/requests/models.py", "closed", 20, 190, 40, "nateprewitt", "sigmavirus24", "medium", 3, 3300),
-            ("[ACTIVE] Support Brotli content encoding decompression in response stream", "src/requests/adapters.py", "open", 22, 275, 65, "sethmlarson", "nateprewitt", "medium", 2, 2500),
-            ("Preserve custom certifi trust store path when REQUESTS_CA_BUNDLE is set", "src/requests/certs.py", "closed", 24, 85, 20, "sethmlarson", "sigmavirus24", "low", 3, 5400),
-            ("Optimize headers case-insensitive dict lookups with string intern caching", "src/requests/structures.py", "closed", 26, 210, 50, "lukasa", "nateprewitt", "medium", 3, 3100),
-            ("Update test suite dependencies and CI matrix for Python 3.14 alpha", ".github/workflows/tests.yml", "closed", 28, 60, 15, "nateprewitt", "sethmlarson", "low", 1, 8400),
-            ("[ACTIVE] Fix response iter_lines chunk splitting on multi-byte UTF-8 boundaries", "src/requests/models.py", "open", 30, 230, 50, "sigmavirus24", "sethmlarson", "medium", 2, 2700),
-            ("Fix cookie expiration timestamp comparison with local system clock offset", "src/requests/cookies.py", "closed", 33, 115, 25, "nateprewitt", "sigmavirus24", "low", 2, 4800),
-            ("Refactor status code lookup dictionary to include HTTP 425 and 451", "src/requests/status_codes.py", "closed", 36, 70, 15, "kennethreitz", "nateprewitt", "low", 2, 6200),
-            ("[ACTIVE] Handle graceful connection termination on HTTP 504 Gateway Timeout", "src/requests/adapters.py", "open", 40, 260, 55, "sethmlarson", "sigmavirus24", "medium", 2, 2900),
-            ("Fix urllib3 redirect history preservation in Response.history tuple", "src/requests/sessions.py", "closed", 45, 175, 40, "sigmavirus24", "nateprewitt", "medium", 2, 3400),
-            ("Update contributor guidelines for security vulnerability disclosures", "SECURITY.md", "closed", 52, 35, 8, "sigmavirus24", "sethmlarson", "low", 1, 9500),
-            ("Deprecate legacy internal request encoding fallback warnings", "src/requests/packages.py", "closed", 60, 40, 10, "nateprewitt", "sigmavirus24", "low", 2, 8900),
-        ]
-    }
-}
 
 
 def _generate_simulated_prs(owner: str, repo: str, count: int = 28) -> list[dict]:
@@ -937,6 +1118,11 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         "last_fetched_at": datetime.now(timezone.utc).isoformat(),
     }
     REPO_PRS_CACHE[full_repo_name.lower()] = all_prs
+    try:
+        store.save_repo(FETCHED_REPOS[full_repo_name])
+        store.save_prs(all_prs)
+    except Exception:
+        pass
 
     return {
         "prs": all_prs,
@@ -997,225 +1183,7 @@ def _discover_popular_repos(limit: int = 6) -> list[dict]:
 
 
 
-# Demo data — shown on initial load
-# ─────────────────────────────────────────────────────────────────────────────
-
-DEMO_PRS = [
-    {
-        "pr_key": "kubernetes/kubernetes#128540",
-        "pr_url": "https://github.com/kubernetes/kubernetes/pull/128540",
-        "repo": "kubernetes/kubernetes",
-        "pr_number": 128540,
-        "title": "Fix retry backoff overflow in scheduler pod binding",
-        "author": "aojea",
-        "reviewer": "thockin",
-        "state": "open",
-        "created_at": "2026-09-17T08:30:00Z",
-        "merged_at": None,
-        "change_risk": 0.81,
-        "review_confidence": 0.23,
-        "residual_risk": 0.62,
-        "depth_score": 0.15,
-        "attention_state": 0.38,
-        "time_adequacy": 0.22,
-        "reviewer_familiarity": 0.70,
-        "status": "re_queued",
-        "re_queued": True,
-        "explanation": (
-            "Approved in 73s on a 520-line diff touching "
-            "`pkg/scheduler/binding.go` — a file with 8 reverts in 90 days — "
-            "by a reviewer 6 reviews into a session; recommend re-review of "
-            "the exponential backoff boundary conditions."
-        ),
-        "top_features": [
-            {"feature": "total_revert_count", "contribution": 0.312},
-            {"feature": "path_infra", "contribution": 0.228},
-            {"feature": "lines_added", "contribution": 0.181},
-        ],
-        "comments": [
-            {"body": "LGTM", "class_name": "rubber_stamp", "weight": 0.0, "path": None},
-        ],
-        "diff_lines": 520,
-        "review_duration_seconds": 73,
-        "consecutive_reviews": 6,
-        "additions": 420,
-        "deletions": 100,
-        "changed_files": 4,
-        "sensitive_files": [],
-        "live": False,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#128201",
-        "pr_url": "https://github.com/kubernetes/kubernetes/pull/128201",
-        "repo": "kubernetes/kubernetes",
-        "pr_number": 128201,
-        "title": "Add token refresh grace period to API server auth middleware",
-        "author": "dims",
-        "reviewer": "deads2k",
-        "state": "open",
-        "created_at": "2026-09-17T06:15:00Z",
-        "merged_at": None,
-        "change_risk": 0.88,
-        "review_confidence": 0.41,
-        "residual_risk": 0.52,
-        "depth_score": 0.45,
-        "attention_state": 0.55,
-        "time_adequacy": 0.38,
-        "reviewer_familiarity": 0.85,
-        "status": "re_queued",
-        "re_queued": True,
-        "explanation": (
-            "A 340-line auth middleware change received only one clarifying "
-            "question in 4 minutes from a reviewer mid-session; request explicit "
-            "sign-off on the token expiry boundary before merging to main."
-        ),
-        "top_features": [
-            {"feature": "path_auth", "contribution": 0.445},
-            {"feature": "mean_defect_density", "contribution": 0.289},
-            {"feature": "total_revert_count", "contribution": 0.201},
-        ],
-        "comments": [
-            {"body": "Why is the grace period 30s and not configurable?", "class_name": "clarifying", "weight": 0.45, "path": "staging/src/k8s.io/apiserver/pkg/authentication/token/cache/caching_token_authenticator.go"},
-        ],
-        "diff_lines": 340,
-        "review_duration_seconds": 247,
-        "consecutive_reviews": 3,
-        "additions": 290,
-        "deletions": 50,
-        "changed_files": 3,
-        "sensitive_files": ["staging/src/k8s.io/apiserver/pkg/authentication/token/cache/caching_token_authenticator.go"],
-        "live": False,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#127998",
-        "pr_url": "https://github.com/kubernetes/kubernetes/pull/127998",
-        "repo": "kubernetes/kubernetes",
-        "pr_number": 127998,
-        "title": "Update kubeadm certs rotation to use new crypto primitives",
-        "author": "pacoxu",
-        "reviewer": "neolit123",
-        "state": "closed",
-        "created_at": "2026-09-12T14:00:00Z",
-        "merged_at": "2026-09-12T16:44:00Z",
-        "change_risk": 0.79,
-        "review_confidence": 0.62,
-        "residual_risk": 0.30,
-        "depth_score": 0.72,
-        "attention_state": 0.78,
-        "time_adequacy": 0.55,
-        "reviewer_familiarity": 0.90,
-        "status": "closed",
-        "re_queued": False,
-        "explanation": (
-            "A 280-line crypto rotation change received two security-class "
-            "comments in 18 minutes from a reviewer familiar with the certs "
-            "package; confidence is adequate and no re-review required."
-        ),
-        "top_features": [
-            {"feature": "path_crypto", "contribution": 0.398},
-            {"feature": "mean_defect_density", "contribution": 0.231},
-            {"feature": "files_touched", "contribution": 0.187},
-        ],
-        "comments": [
-            {"body": "This key size must match the CA config — verify RSA 4096 is enforced downstream.", "class_name": "security", "weight": 1.0, "path": "cmd/kubeadm/app/util/pkiutil/pki_helpers.go"},
-            {"body": "The rotation window check will fail for certs expiring exactly at midnight UTC — off-by-one.", "class_name": "logic_concern", "weight": 0.8, "path": "cmd/kubeadm/app/phases/certs/renewal/manager.go"},
-        ],
-        "diff_lines": 280,
-        "review_duration_seconds": 1082,
-        "consecutive_reviews": 1,
-        "additions": 220,
-        "deletions": 60,
-        "changed_files": 5,
-        "sensitive_files": ["cmd/kubeadm/app/util/pkiutil/pki_helpers.go"],
-        "live": False,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#127654",
-        "pr_url": "https://github.com/kubernetes/kubernetes/pull/127654",
-        "repo": "kubernetes/kubernetes",
-        "pr_number": 127654,
-        "title": "Fix typos in docs/concepts/workloads/pods.md",
-        "author": "windsonsea",
-        "reviewer": "tengqm",
-        "state": "closed",
-        "created_at": "2026-09-11T10:00:00Z",
-        "merged_at": "2026-09-11T11:22:00Z",
-        "change_risk": 0.04,
-        "review_confidence": 0.88,
-        "residual_risk": 0.005,
-        "depth_score": 0.60,
-        "attention_state": 0.91,
-        "time_adequacy": 0.90,
-        "reviewer_familiarity": 0.60,
-        "status": "closed",
-        "re_queued": False,
-        "explanation": (
-            "A 12-line documentation typo fix received careful review with "
-            "two style suggestions; change risk is negligible and no action needed."
-        ),
-        "top_features": [
-            {"feature": "lines_added", "contribution": 0.020},
-            {"feature": "diff_uniformity", "contribution": 0.010},
-            {"feature": "files_touched", "contribution": 0.008},
-        ],
-        "comments": [
-            {"body": "s/occured/occurred", "class_name": "nit_style", "weight": 0.15, "path": "docs/concepts/workloads/pods.md"},
-            {"body": "Remove trailing whitespace on line 42", "class_name": "nit_style", "weight": 0.15, "path": "docs/concepts/workloads/pods.md"},
-        ],
-        "diff_lines": 12,
-        "review_duration_seconds": 95,
-        "consecutive_reviews": 0,
-        "additions": 8,
-        "deletions": 4,
-        "changed_files": 1,
-        "sensitive_files": [],
-        "live": False,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#127490",
-        "pr_url": "https://github.com/kubernetes/kubernetes/pull/127490",
-        "repo": "kubernetes/kubernetes",
-        "pr_number": 127490,
-        "title": "Migrate payment reconciliation to use atomic DynamoDB transactions",
-        "author": "liggitt",
-        "reviewer": "jpbetz",
-        "state": "closed",
-        "created_at": "2026-09-10T16:00:00Z",
-        "merged_at": "2026-09-10T18:05:00Z",
-        "change_risk": 0.75,
-        "review_confidence": 0.29,
-        "residual_risk": 0.53,
-        "depth_score": 0.30,
-        "attention_state": 0.45,
-        "time_adequacy": 0.18,
-        "reviewer_familiarity": 0.55,
-        "status": "re_queued",
-        "re_queued": True,
-        "explanation": (
-            "A 490-line database transaction migration received only a "
-            "clarifying question in 2 minutes from a reviewer 5 reviews into "
-            "a session; re-review of the rollback path is recommended."
-        ),
-        "top_features": [
-            {"feature": "path_payment", "contribution": 0.380},
-            {"feature": "total_changed_lines", "contribution": 0.270},
-            {"feature": "mean_defect_density", "contribution": 0.195},
-        ],
-        "comments": [
-            {"body": "What happens if the conditional write fails halfway?", "class_name": "clarifying", "weight": 0.45, "path": "staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go"},
-        ],
-        "diff_lines": 490,
-        "review_duration_seconds": 118,
-        "consecutive_reviews": 5,
-        "additions": 380,
-        "deletions": 110,
-        "changed_files": 6,
-        "sensitive_files": [],
-        "live": False,
-    },
-]
-
-# Enrich demo PRs with computed fields
+# Enrich demo PRs with computed fields (imported from dashboard.seeds)
 for pr in DEMO_PRS:
     if "risk_tier" not in pr:
         pr["risk_tier"] = _risk_tier(pr["residual_risk"])
@@ -1231,254 +1199,34 @@ for pr in DEMO_PRS:
 
 DEMO_PR_MAP = {pr["pr_number"]: pr for pr in DEMO_PRS}
 
-def _init_default_repos():
-    """Populate default repositories catalog and PR caches with multi-model scored PRs."""
-    FETCHED_REPOS["kubernetes/kubernetes"] = {
-        "full_name": "kubernetes/kubernetes",
-        "owner": "kubernetes",
-        "repo": "kubernetes",
-        "description": "Production-Grade Container Scheduling and Management",
-        "stars": "114k",
-        "forks": "39.2k",
-        "language": "Go",
-        "language_color": "#00ADD8",
-        "is_public": True,
-        "active_prs_count": 88,
-        "closed_prs_count": 2975,
-        "avg_residual_risk": 0.38,
-        "last_fetched_at": "2026-09-17T08:00:00Z",
-    }
-    REPO_PRS_CACHE["kubernetes/kubernetes"] = DEMO_PRS
 
-    default_defs = [
-        (
-            "llvm", "llvm-project",
-            "The LLVM Project is a collection of modular and reusable compiler and toolchain technologies.",
-            "31.2k", "14.8k", "LLVM", "#1f883d", 142, 8940, 0.52,
-            [
-                ("Add vectorization pass for nested reduction loops in MLIR", 201666, "closed", 480, 88, ["mlir/lib/Transforms/Vectorize.cpp"], 0.78, 0.32, "nikic"),
-                ("[ACTIVE] Fix memory sanitiser false-positive in coroutine frame allocator", 201667, "open", 160, 45, ["llvm/lib/Transforms/Coroutines/CoroSplit.cpp"], 0.68, 0.44, "vitalybuka"),
-                ("Improve instruction scheduling tablegen descriptions for AArch64 Neoverse-V2", 201668, "closed", 620, 110, ["llvm/lib/Target/AArch64/AArch64SchedNeoverseV2.td"], 0.42, 0.75, "davem"),
-                ("[ACTIVE] Add target feature check before emitting AVX-512 gather instructions", 201669, "open", 310, 92, ["llvm/lib/Target/X86/X86ISelLowering.cpp"], 0.74, 0.28, "craig-topper"),
-                ("Remove deprecated legacy pass manager hooks from opt tool", 201670, "closed", 95, 310, ["llvm/tools/opt/opt.cpp"], 0.35, 0.82, "aeubanks"),
-            ]
-        ),
-        (
-            "pallets", "flask",
-            "The Python micro framework for building web applications.",
-            "68.4k", "16.1k", "Python", "#3572A5", 14, 4820, 0.28,
-            [
-                ("Fix context locals leak when handling streaming generator response exceptions", 5401, "closed", 145, 32, ["src/flask/ctx.py"], 0.72, 0.40, "davidism"),
-                ("[ACTIVE] Add support for async signals dispatch with blinker 1.9+", 5402, "open", 220, 45, ["src/flask/signals.py"], 0.65, 0.35, "pgjones"),
-                ("Clarify blueprint url prefix precedence in nested registration docs", 5403, "closed", 28, 12, ["docs/blueprints.rst"], 0.08, 0.90, "pallets-bot"),
-                ("[ACTIVE] Allow custom JSON decoder instance in app.json.loads override", 5404, "open", 85, 20, ["src/flask/json/provider.py"], 0.40, 0.60, "untitaker"),
-                ("Optimize route matching trie cache for repeated dynamic url lookups", 5405, "closed", 190, 70, ["src/flask/routing.py"], 0.58, 0.68, "davidism"),
-            ]
-        ),
-        (
-            "facebook", "react",
-            "The library for web and native user interfaces.",
-            "231k", "46.2k", "JavaScript", "#f1e05a", 32, 14200, 0.45,
-            [
-                ("Refactor Server Components flight protocol buffer deserializer", 29810, "closed", 640, 180, ["packages/react-client/src/ReactFlightClient.js"], 0.84, 0.30, "sebmarkbage"),
-                ("[ACTIVE] Fix useActionState transition cancellation during high priority updates", 29811, "open", 310, 85, ["packages/react-reconciler/src/ReactFiberWorkLoop.js"], 0.79, 0.38, "acdlite"),
-                ("Deprecate legacy context fallback in developmental fiber validation", 29812, "closed", 95, 40, ["packages/react/src/ReactContext.js"], 0.25, 0.85, "gaearon"),
-                ("[ACTIVE] Optimize compiler memoization bailout for inline closure props", 29813, "open", 510, 140, ["compiler/packages/babel-plugin-react-compiler/src/HIR/BuildHIR.ts"], 0.71, 0.45, "josephsavona"),
-                ("Fix hydration mismatch warning formatting when dom nesting is invalid", 29814, "closed", 120, 50, ["packages/react-dom/src/client/ReactDOMComponent.js"], 0.35, 0.78, "sophiebits"),
-            ]
-        ),
-        (
-            "fastapi", "fastapi",
-            "FastAPI framework, high performance, easy to learn, fast to code, ready for production",
-            "79.8k", "6.8k", "Python", "#3572A5", 22, 3610, 0.31,
-            [
-                ("Fix OpenAPI schema generation for Union types in Pydantic v2 nested models", 10840, "closed", 320, 85, ["fastapi/openapi/utils.py"], 0.69, 0.42, "tiangolo"),
-                ("[ACTIVE] Add background task exception logging when using custom lifespan handler", 10841, "open", 180, 40, ["fastapi/applications.py"], 0.58, 0.48, "Kludex"),
-                ("Update tutorial on OAuth2 password flow with JWT tokens expiration", 10842, "closed", 45, 15, ["docs/en/docs/tutorial/security/oauth2-jwt.md"], 0.06, 0.92, "tiangolo"),
-                ("[ACTIVE] Streamline request body validation error response structure for bulk operations", 10843, "open", 240, 90, ["fastapi/dependencies/utils.py"], 0.64, 0.38, "dmontagu"),
-            ]
-        ),
-        (
-            "psf", "requests",
-            "A simple, yet elegant, HTTP library for Python.",
-            "52.3k", "9.4k", "Python", "#3572A5", 88, 2975, 0.24,
-            [
-                ("Fix proxy authorization header stripping on HTTPS to HTTP redirect downgrade", 6740, "closed", 110, 25, ["src/requests/sessions.py"], 0.82, 0.25, "sigmavirus24"),
-                ("[ACTIVE] Bump urllib3 compatibility matrix and patch chunked transfer boundary", 6741, "open", 95, 30, ["src/requests/adapters.py"], 0.60, 0.40, "sethmlarson"),
-                ("Fix RequestsCookieJar.popitem() key-value tuple unpacking under Python 3.13", 6742, "closed", 40, 10, ["src/requests/cookies.py"], 0.22, 0.88, "nateprewitt"),
-                ("[ACTIVE] Add SSL verification troubleshooting guide to official docs", 6743, "open", 75, 5, ["docs/user/advanced.rst"], 0.05, 0.95, "kennethreitz"),
-            ]
-        ),
-    ]
+def _init_default_repos() -> None:
+    """Populate default repositories catalog and PR caches with stored/seed repositories."""
+    stored_repos = store.get_repos()
+    if not stored_repos:
+        from dashboard.seeds import DEFAULT_REPOS
+        for name, repo_meta in DEFAULT_REPOS.items():
+            store.save_repo(dict(repo_meta))
+        stored_repos = store.get_repos()
 
-    for owner, repo_name, desc, stars, forks, lang, color, active_cnt, closed_cnt, avg_risk, sample_prs in default_defs:
-        full_name = f"{owner}/{repo_name}"
-        FETCHED_REPOS[full_name] = {
-            "full_name": full_name,
-            "owner": owner,
-            "repo": repo_name,
-            "description": desc,
-            "stars": stars,
-            "forks": forks,
-            "language": lang,
-            "language_color": color,
-            "is_public": True,
-            "active_prs_count": active_cnt,
-            "closed_prs_count": closed_cnt,
-            "avg_residual_risk": avg_risk,
-            "last_fetched_at": "2026-09-17T12:00:00Z",
-        }
+    for name, repo_meta in stored_repos.items():
+        FETCHED_REPOS[name] = dict(repo_meta)
 
-        repo_prs = []
-        for title, pr_num, state, adds, dels, files, c_risk, r_conf, reviewer in sample_prs:
-            res_risk = round(c_risk * (1.0 - r_conf), 4)
-            re_q = res_risk >= 0.65
-            pr_dict = {
-                "pr_key": f"{full_name}#{pr_num}",
-                "pr_url": f"https://github.com/{full_name}/pull/{pr_num}",
-                "repo": full_name,
-                "pr_number": pr_num,
-                "title": title,
-                "author": reviewer if "bot" in reviewer else ("dev-author" if state == "open" else reviewer),
-                "reviewer": "team-lead" if reviewer == "dev-author" else reviewer,
-                "created_at": "2026-09-16T10:00:00Z",
-                "merged_at": "2026-09-16T14:30:00Z" if state == "closed" else None,
-                "state": state,
-                "change_risk": c_risk,
-                "review_confidence": r_conf,
-                "residual_risk": res_risk,
-                "depth_score": round(r_conf * 0.9, 2),
-                "attention_state": 0.65,
-                "time_adequacy": round(r_conf * 0.85, 2),
-                "reviewer_familiarity": 0.70,
-                "status": "re_queued" if re_q else ("active" if state == "open" else "closed"),
-                "re_queued": re_q,
-                "explanation": (
-                    f"A {adds+dels}-line change touching {len(files)} files ({files[0] if files else 'code'}). "
-                    f"Residual risk ({res_risk:.2f}) {'exceeds safety threshold — re-review recommended' if re_q else 'is within bounds; review depth adequate'}."
-                ),
-                "top_features": [
-                    {"feature": "diff_size", "contribution": round(c_risk * 0.4, 3)},
-                    {"feature": "sensitive_paths", "contribution": round(c_risk * 0.35, 3)},
-                    {"feature": "review_timing", "contribution": round((1.0 - r_conf) * 0.25, 3)},
-                ],
-                "comments": [
-                    {"body": f"Review comment on #{pr_num} substantive aspects", "class_name": "clarifying", "weight": 0.45, "path": files[0] if files else None},
-                ],
-                "diff_lines": adds + dels,
-                "review_duration_seconds": 320 if state == "closed" else 0,
-                "consecutive_reviews": 1,
-                "risk_tier": _risk_tier(res_risk),
-                "confidence_pct": int(r_conf * 100),
-                "residual_pct": int(res_risk * 100),
-                "change_risk_pct": int(c_risk * 100),
-                "sensitive_files": files,
-                "additions": adds,
-                "deletions": dels,
-                "changed_files": len(files),
-                "live": True,
-            }
-            _cache_scored_pr(pr_dict)
-            repo_prs.append(pr_dict)
+    stored_prs = store.get_prs()
+    if not stored_prs:
+        store.save_prs(DEMO_PRS)
+        stored_prs = store.get_prs()
 
-        REPO_PRS_CACHE[full_name.lower()] = repo_prs
-
-# Do not pre-populate default repos on startup (started with clean catalog per user request)
-# _init_default_repos()
+    for pr in stored_prs:
+        repo_name = pr.get("repo", "kubernetes/kubernetes")
+        if repo_name not in REPO_PRS_CACHE:
+            REPO_PRS_CACHE[repo_name] = []
+        REPO_PRS_CACHE[repo_name].append(pr)
+        _cache_scored_pr(pr)
 
 
-DEMO_VALIDATION = [
-    {
-        "pr_key": "kubernetes/kubernetes#121847",
-        "pr_number": 121847,
-        "title": "Refactor pod disruption budget controller lock handling",
-        "merged_at": "2026-04-02",
-        "change_risk": 0.79,
-        "residual_risk": 0.71,
-        "flagged": True,
-        "is_defective": 1,
-        "label_source": "revert",
-        "revert_commit": "a3f8d12",
-        "revert_message": 'Revert "Refactor pod disruption budget controller lock handling"\n\nThis reverts commit a3f8d12. Caused deadlock under high pod churn.',
-        "days_to_incident": 11,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#120933",
-        "pr_number": 120933,
-        "title": "Optimise informer cache index lookup for multi-tenant namespaces",
-        "merged_at": "2026-03-18",
-        "change_risk": 0.84,
-        "residual_risk": 0.68,
-        "flagged": True,
-        "is_defective": 1,
-        "label_source": "bug_fix_ref",
-        "revert_commit": "c4d2e01",
-        "revert_message": "Fix memory leak introduced in #120933 informer cache refactor.",
-        "days_to_incident": 6,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#120112",
-        "pr_number": 120112,
-        "title": "Add watch termination telemetry to apiserver connection metrics",
-        "merged_at": "2026-02-27",
-        "change_risk": 0.72,
-        "residual_risk": 0.66,
-        "flagged": True,
-        "is_defective": 1,
-        "label_source": "revert",
-        "revert_commit": "f9b8c34",
-        "revert_message": "Revert \"Add watch termination telemetry\" — high cpu in telemetry worker.",
-        "days_to_incident": 3,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#119804",
-        "pr_number": 119804,
-        "title": "Bump client-go credential plugin timeout default to 45s",
-        "merged_at": "2026-02-14",
-        "change_risk": 0.31,
-        "residual_risk": 0.12,
-        "flagged": False,
-        "is_defective": 0,
-        "label_source": None,
-        "revert_commit": None,
-        "revert_message": None,
-        "days_to_incident": None,
-    },
-    {
-        "pr_key": "kubernetes/kubernetes#119420",
-        "pr_number": 119420,
-        "title": "Fix node lease renewal jitter under network partition",
-        "merged_at": "2026-01-30",
-        "change_risk": 0.82,
-        "residual_risk": 0.67,
-        "flagged": True,
-        "is_defective": 1,
-        "label_source": "bug_fix_ref",
-        "revert_commit": "e8a7f12",
-        "revert_message": "Fix split-brain lease expiry caused by jitter calculation in #119420.",
-        "days_to_incident": 14,
-    },
-]
-
-BOARD_STATS = {
-    "total_scored": 12_847,
-    "high_risk_flagged": 412,
-    "requeued_today": 38,
-    "avg_residual_risk": 0.34,
-    "precision_at_5": "4/5",
-    "precision_at_10": "7/10",
-    "precision_at_20": "9/20",
-}
-
-VALIDATION_STATS = {
-    "precision_at_5": "4/5",
-    "precision_at_10": "7/10",
-    "precision_at_20": "9/20",
-    "auc_roc": 0.68,
-    "total_scored": 4_823,
-    "flagged": 163,
-}
-
+# Preload persisted data into active cache on startup
+_init_default_repos()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes & Auth State
@@ -1516,6 +1264,13 @@ def landing_page():
         if parsed:
             return repo_view(parsed[0], parsed[1])
 
+    try:
+        for name, meta in store.get_repos().items():
+            if name not in FETCHED_REPOS:
+                FETCHED_REPOS[name] = meta
+    except Exception:
+        pass
+
     sample_repos = list(FETCHED_REPOS.values())[:6]
     client_id = os.environ.get("GITHUB_CLIENT_ID", "").strip()
     oauth_setup = request.args.get("oauth_setup") == "1"
@@ -1540,6 +1295,13 @@ def repos_page():
         parsed = _parse_repo_input(repo_arg)
         if parsed:
             return repo_view(parsed[0], parsed[1])
+
+    try:
+        for name, meta in store.get_repos().items():
+            if name not in FETCHED_REPOS:
+                FETCHED_REPOS[name] = meta
+    except Exception:
+        pass
 
     search = request.args.get("q", "").strip().lower()
     repos_list = list(FETCHED_REPOS.values())
@@ -1796,6 +1558,18 @@ def repo_view(owner: str, repo_name: str):
     state_filter = request.args.get("state", "all")
     search = request.args.get("q", "").strip()
 
+    # Check in-memory cache, then load from store if present
+    if full_name.lower() not in REPO_PRS_CACHE:
+        try:
+            prs_from_store = store.get_prs(repo=full_name)
+            if prs_from_store:
+                REPO_PRS_CACHE[full_name.lower()] = prs_from_store
+                stored_repos = store.get_repos()
+                if full_name in stored_repos:
+                    FETCHED_REPOS[full_name] = stored_repos[full_name]
+        except Exception:
+            pass
+
     # Use cached or fetch & score
     if full_name.lower() in REPO_PRS_CACHE and full_name in FETCHED_REPOS:
         prs = list(REPO_PRS_CACHE[full_name.lower()])
@@ -1838,6 +1612,11 @@ def repo_view(owner: str, repo_name: str):
                             FETCHED_REPOS[full_name]["active_prs_count"] = FETCHED_REPOS[full_name].get("active_prs_count", 0) + 1
                         else:
                             FETCHED_REPOS[full_name]["closed_prs_count"] = FETCHED_REPOS[full_name].get("closed_prs_count", 0) + 1
+                        try:
+                            store.save_repo(FETCHED_REPOS[full_name])
+                            store.save_pr(auto_fetched)
+                        except Exception:
+                            pass
 
     # Pre-filter counts
     open_count = len([p for p in prs if p.get("state") == "open"])
@@ -2167,12 +1946,262 @@ def pr_detail_catchall(pr_key: str):
     ), 404
 
 
+def _compute_team_health(repo_filter: str | None = None) -> dict:
+    """
+    Compute real-time team review health, fatigue index, rubber-stamp rate,
+    module-level safety posture, and pacing distributions.
+    """
+    all_prs: list[dict] = []
+    if repo_filter and repo_filter != "all" and repo_filter in REPO_PRS_CACHE:
+        all_prs = list(REPO_PRS_CACHE[repo_filter])
+    else:
+        for r_prs in REPO_PRS_CACHE.values():
+            all_prs.extend(r_prs)
+        for pr_dict in LIVE_PRS_CACHE.values():
+            if pr_dict not in all_prs:
+                all_prs.append(pr_dict)
+
+    if not all_prs:
+        all_prs = list(DEMO_PRS)
+
+    # De-duplicate by pr_key
+    seen_keys = set()
+    deduped_prs = []
+    for p in all_prs:
+        pk = p.get("pr_key") or f"{p.get('repo')}#{p.get('pr_number')}"
+        if pk not in seen_keys:
+            seen_keys.add(pk)
+            deduped_prs.append(p)
+    all_prs = deduped_prs
+
+    total_prs = len(all_prs)
+    rubber_stamp_count = 0
+    total_duration_secs = 0
+    fatigued_reviewer_count = 0
+
+    # 1. Reviewer analytics
+    reviewers_map: dict[str, dict] = {}
+    for pr in all_prs:
+        rev = pr.get("reviewer") or "unassigned"
+        if rev == "collaborator":
+            rev = "unassigned"
+        dur = int(pr.get("review_duration_seconds") or 3600)
+        depth = float(pr.get("depth_score") if pr.get("depth_score") is not None else 0.45)
+        att = float(pr.get("attention_state") if pr.get("attention_state") is not None else 0.65)
+        residual = float(pr.get("residual_risk") if pr.get("residual_risk") is not None else 0.35)
+
+        total_duration_secs += dur
+
+        # Detect if rubber stamp
+        is_rubber = False
+        comments = pr.get("comments") or []
+        for c in comments:
+            if c.get("class_name") == "rubber_stamp" or (isinstance(c.get("body"), str) and c["body"].strip().lower() in ("lgtm", "approved", "👍")):
+                is_rubber = True
+                break
+        if not is_rubber and (depth < 0.20 or dur < 120):
+            is_rubber = True
+
+        if is_rubber:
+            rubber_stamp_count += 1
+
+        if rev not in reviewers_map:
+            reviewers_map[rev] = {
+                "login": rev,
+                "prs_reviewed": 0,
+                "rubber_stamps": 0,
+                "durations": [],
+                "depths": [],
+                "attentions": [],
+                "residuals": [],
+            }
+        r_entry = reviewers_map[rev]
+        r_entry["prs_reviewed"] += 1
+        if is_rubber:
+            r_entry["rubber_stamps"] += 1
+        r_entry["durations"].append(dur)
+        r_entry["depths"].append(depth)
+        r_entry["attentions"].append(att)
+        r_entry["residuals"].append(residual)
+
+    reviewer_rows = []
+    for rev, data in reviewers_map.items():
+        if rev == "unassigned":
+            continue
+        count = data["prs_reviewed"]
+        avg_dur_min = round(sum(data["durations"]) / max(count, 1) / 60.0, 1)
+        avg_depth = round(sum(data["depths"]) / max(count, 1), 2)
+        avg_att = round(sum(data["attentions"]) / max(count, 1), 2)
+        rubber_pct = int((data["rubber_stamps"] / max(count, 1)) * 100)
+
+        # Fatigue status classification
+        if avg_att < 0.40 or count >= 8 or rubber_pct >= 50:
+            status = "High Fatigue"
+            status_class = "high"
+            fatigued_reviewer_count += 1
+        elif avg_att < 0.60 or count >= 4:
+            status = "Moderate Load"
+            status_class = "medium"
+            fatigued_reviewer_count += 1
+        else:
+            status = "Healthy"
+            status_class = "low"
+
+        reviewer_rows.append({
+            "login": rev,
+            "prs_reviewed": count,
+            "avg_duration_min": avg_dur_min,
+            "avg_depth": avg_depth,
+            "avg_attention": avg_att,
+            "rubber_stamps": data["rubber_stamps"],
+            "rubber_stamp_pct": rubber_pct,
+            "status": status,
+            "status_class": status_class,
+        })
+
+    reviewer_rows.sort(key=lambda x: x["prs_reviewed"], reverse=True)
+
+    # 2. Module & Path Safety Heatmap
+    MODULE_PATTERNS = {
+        "Authentication & Identity": re.compile(r"(auth|oauth|jwt|token|session|login|sso)", re.I),
+        "Billing & Payments": re.compile(r"(payment|billing|stripe|invoice|charge|wallet)", re.I),
+        "Database & Schema Migrations": re.compile(r"(migration|migrate|schema|alembic|flyway)", re.I),
+        "Cryptography & Security": re.compile(r"(crypto|encrypt|decrypt|cipher|vault|kms|secret)", re.I),
+        "Cloud Infrastructure & K8s": re.compile(r"(terraform|k8s|kubernetes|helm|docker|infra)", re.I),
+        "Core Application Logic": None,
+    }
+
+    module_stats = {name: {"name": name, "count": 0, "change_risks": [], "depths": [], "residuals": []} for name in MODULE_PATTERNS}
+
+    for pr in all_prs:
+        files = pr.get("sensitive_files") or []
+        title = pr.get("title", "")
+        body = pr.get("body", "")
+        combined_text = " ".join([str(f) for f in files] + [title, body])
+
+        matched_module = "Core Application Logic"
+        for mod_name, pattern in MODULE_PATTERNS.items():
+            if pattern and pattern.search(combined_text):
+                matched_module = mod_name
+                break
+
+        ms = module_stats[matched_module]
+        ms["count"] += 1
+        cr_val = pr.get("change_risk")
+        dp_val = pr.get("depth_score")
+        rr_val = pr.get("residual_risk")
+        ms["change_risks"].append(float(cr_val) if cr_val is not None else 0.40)
+        ms["depths"].append(float(dp_val) if dp_val is not None else 0.50)
+        ms["residuals"].append(float(rr_val) if rr_val is not None else 0.35)
+
+    module_rows = []
+    for name, data in module_stats.items():
+        if data["count"] == 0:
+            continue
+        c = data["count"]
+        avg_cr = round(sum(data["change_risks"]) / c, 2)
+        avg_dp = round(sum(data["depths"]) / c, 2)
+        avg_rr = round(sum(data["residuals"]) / c, 2)
+
+        if avg_rr >= 0.65:
+            status = "Under-Reviewed"
+            status_class = "high"
+        elif avg_rr >= 0.35:
+            status = "Needs Attention"
+            status_class = "medium"
+        else:
+            status = "Protected"
+            status_class = "low"
+
+        module_rows.append({
+            "name": name,
+            "count": c,
+            "avg_change_risk": avg_cr,
+            "avg_depth": avg_dp,
+            "avg_residual_risk": avg_rr,
+            "status": status,
+            "status_class": status_class,
+        })
+
+    module_rows.sort(key=lambda x: x["avg_residual_risk"], reverse=True)
+
+    # 3. Discrepancy Aggregations
+    discrepancy_counts = {
+        "rapid_merge": 0,
+        "self_review": 0,
+        "no_reviewer": 0,
+        "wip_merged": 0,
+        "rubber_stamps": 0,
+        "high_residual_requeued": 0,
+    }
+    for pr in all_prs:
+        dur = int(pr.get("review_duration_seconds") or 3600)
+        if dur < 600 and pr.get("state") == "closed":
+            discrepancy_counts["rapid_merge"] += 1
+        if pr.get("reviewer") and pr.get("author") and pr["reviewer"].lower() == pr["author"].lower() and pr["reviewer"] != "collaborator":
+            discrepancy_counts["self_review"] += 1
+        if pr.get("reviewer") in ("", "collaborator", "unassigned"):
+            discrepancy_counts["no_reviewer"] += 1
+        if any(w in pr.get("title", "").lower() for w in ("wip", "do not merge", "draft", "dnm")) and pr.get("state") == "closed":
+            discrepancy_counts["wip_merged"] += 1
+        if pr.get("re_queued"):
+            discrepancy_counts["high_residual_requeued"] += 1
+
+    discrepancy_counts["rubber_stamps"] = rubber_stamp_count
+
+    # 4. Review Pacing Distribution
+    total_non_zero = max(total_prs, 1)
+    pacing_dist = {
+        "rushed": 0, "brief": 0, "standard": 0, "thorough": 0,
+        "rushed_pct": 0, "brief_pct": 0, "standard_pct": 0, "thorough_pct": 0,
+    }
+    for pr in all_prs:
+        mins = (pr.get("review_duration_seconds") or 3600) / 60.0
+        if mins < 5:
+            pacing_dist["rushed"] += 1
+        elif mins < 20:
+            pacing_dist["brief"] += 1
+        elif mins < 60:
+            pacing_dist["standard"] += 1
+        else:
+            pacing_dist["thorough"] += 1
+
+    pacing_dist["rushed_pct"] = int((pacing_dist["rushed"] / total_non_zero) * 100)
+    pacing_dist["brief_pct"] = int((pacing_dist["brief"] / total_non_zero) * 100)
+    pacing_dist["standard_pct"] = int((pacing_dist["standard"] / total_non_zero) * 100)
+    pacing_dist["thorough_pct"] = int((pacing_dist["thorough"] / total_non_zero) * 100)
+
+    # 5. Global KPIs
+    rubber_stamp_rate = round((rubber_stamp_count / max(total_prs, 1)) * 100, 1)
+    fatigue_index = round((fatigued_reviewer_count / max(len(reviewer_rows), 1)) * 100, 1) if reviewer_rows else 0.0
+    avg_review_mins = round((total_duration_secs / max(total_prs, 1)) / 60.0, 1)
+    re_queued_count = sum(1 for pr in all_prs if pr.get("re_queued"))
+
+    return {
+        "total_prs": total_prs,
+        "rubber_stamp_rate": rubber_stamp_rate,
+        "fatigue_index": fatigue_index,
+        "avg_review_mins": avg_review_mins,
+        "re_queued_count": re_queued_count,
+        "reviewers": reviewer_rows,
+        "modules": module_rows,
+        "discrepancies": discrepancy_counts,
+        "pacing": pacing_dist,
+        "repo_filter": repo_filter or "all",
+        "repos": list(FETCHED_REPOS.values()),
+    }
+
+
+@app.route("/team-health")
 @app.route("/validation")
-def validation():
+def team_health():
+    repo_filter = request.args.get("repo", "all")
+    health_data = _compute_team_health(repo_filter=repo_filter)
     return render_template(
-        "validation.html",
-        prs=DEMO_VALIDATION,
-        stats=VALIDATION_STATS,
+        "team_health.html",
+        health=health_data,
+        repos=list(FETCHED_REPOS.values()),
+        active_repo=repo_filter,
     )
 
 
@@ -2301,6 +2330,15 @@ def api_fetch_single_pr():
             meta["active_prs_count"] = meta.get("active_prs_count", 0) + 1
         else:
             meta["closed_prs_count"] = meta.get("closed_prs_count", 0) + 1
+        try:
+            store.save_repo(meta)
+        except Exception:
+            pass
+
+    try:
+        store.save_pr(pr_obj)
+    except Exception:
+        pass
 
     return jsonify({"success": True, "pr": pr_obj, "newly_fetched": True})
 
