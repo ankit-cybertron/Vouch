@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from unittest.mock import MagicMock
 
 from dashboard.store import (
     DynamoDbStorageBackend,
@@ -25,13 +26,12 @@ class TestJsonStorageBackend:
         return JsonStorageBackend(repos_path=repos_file, prs_path=prs_file)
 
     def test_initialization_creates_files(self, temp_store):
-        """Storage backend automatically initializes seed files if missing."""
+        """Storage backend automatically initializes persistence files if missing."""
         assert temp_store.repos_path.exists()
         assert temp_store.prs_path.exists()
 
         repos = temp_store.get_repos()
         assert isinstance(repos, dict)
-        assert len(repos) > 0
 
     def test_save_and_get_repo(self, temp_store):
         """Saving a new repository persists it to JSON file."""
@@ -205,4 +205,151 @@ class TestAppStoreIntegration:
         # Verify reading filtered by repo returns exactly the 2 new PRs
         repo_prs = backend.get_prs(repo=new_repo_name)
         assert len(repo_prs) == 2
+
+
+class TestDynamoDbStorageBackendOperations:
+    @pytest.fixture
+    def mock_dynamodb_backend(self):
+        backend = DynamoDbStorageBackend.__new__(DynamoDbStorageBackend)
+        backend.region_name = "ap-south-1"
+        backend.prs_table_name = "vouch-prs"
+        backend.repos_table_name = "vouch-repos"
+        backend.prs_table = MagicMock()
+        backend.repos_table = MagicMock()
+        return backend
+
+    def test_init_defaults_to_ap_south_1(self, monkeypatch):
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        monkeypatch.delenv("PRS_TABLE", raising=False)
+        monkeypatch.delenv("REPOS_TABLE", raising=False)
+
+        mock_resource = MagicMock()
+        monkeypatch.setattr("boto3.resource", mock_resource)
+
+        backend = DynamoDbStorageBackend()
+        assert backend.region_name == "ap-south-1"
+        assert backend.prs_table_name == "vouch-prs"
+        assert backend.repos_table_name == "vouch-repos"
+        mock_resource.assert_called_once_with("dynamodb", region_name="ap-south-1")
+
+    def test_init_fails_clearly_when_missing_config(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "   ")
+        with pytest.raises(ValueError, match="AWS_REGION must be configured"):
+            DynamoDbStorageBackend()
+
+    def test_get_repos_empty_table_returns_empty_dict(self, mock_dynamodb_backend):
+        mock_dynamodb_backend.repos_table.scan.return_value = {"Items": []}
+        repos = mock_dynamodb_backend.get_repos()
+        assert repos == {}
+
+    def test_get_repos_returns_deserialized_dictionary(self, mock_dynamodb_backend):
+        mock_dynamodb_backend.repos_table.scan.return_value = {
+            "Items": [
+                {
+                    "full_name": "pallets/flask",
+                    "stars": "74k",
+                    "active_prs_count": Decimal("5"),
+                    "avg_residual_risk": Decimal("0.24"),
+                }
+            ]
+        }
+        repos = mock_dynamodb_backend.get_repos()
+        assert "pallets/flask" in repos
+        assert repos["pallets/flask"]["stars"] == "74k"
+        assert repos["pallets/flask"]["active_prs_count"] == 5
+        assert repos["pallets/flask"]["avg_residual_risk"] == 0.24
+
+    def test_save_repo_persists_item(self, mock_dynamodb_backend):
+        repo_data = {
+            "full_name": "kubernetes/kubernetes",
+            "owner": "kubernetes",
+            "repo": "kubernetes",
+            "avg_residual_risk": 0.42,
+        }
+        mock_dynamodb_backend.save_repo(repo_data)
+        mock_dynamodb_backend.repos_table.put_item.assert_called_once()
+        called_item = mock_dynamodb_backend.repos_table.put_item.call_args[1]["Item"]
+        assert called_item["full_name"] == "kubernetes/kubernetes"
+        assert isinstance(called_item["avg_residual_risk"], Decimal)
+        assert called_item["avg_residual_risk"] == Decimal("0.42")
+
+    def test_get_prs_without_repo_uses_scan(self, mock_dynamodb_backend):
+        mock_dynamodb_backend.prs_table.scan.return_value = {
+            "Items": [{"pr_key": "org/repo#1", "residual_risk": Decimal("0.35")}]
+        }
+        prs = mock_dynamodb_backend.get_prs()
+        assert len(prs) == 1
+        assert prs[0]["pr_key"] == "org/repo#1"
+        assert prs[0]["residual_risk"] == 0.35
+        mock_dynamodb_backend.prs_table.scan.assert_called_once()
+
+    def test_get_prs_with_repo_queries_gsi_repo_index(self, mock_dynamodb_backend):
+        mock_dynamodb_backend.prs_table.query.return_value = {
+            "Items": [
+                {"pr_key": "kubernetes/kubernetes#101", "repo": "kubernetes/kubernetes", "residual_risk": Decimal("0.55")}
+            ]
+        }
+        prs = mock_dynamodb_backend.get_prs(repo="kubernetes/kubernetes")
+        assert len(prs) == 1
+        assert prs[0]["pr_key"] == "kubernetes/kubernetes#101"
+        mock_dynamodb_backend.prs_table.query.assert_called_once()
+        call_kwargs = mock_dynamodb_backend.prs_table.query.call_args[1]
+        assert call_kwargs["IndexName"] == "repo-index"
+
+    def test_get_pr_by_number_and_repo(self, mock_dynamodb_backend):
+        mock_dynamodb_backend.prs_table.get_item.return_value = {
+            "Item": {"pr_key": "facebook/react#200", "title": "Hooks update", "residual_risk": Decimal("0.12")}
+        }
+        pr = mock_dynamodb_backend.get_pr("facebook/react", 200)
+        assert pr is not None
+        assert pr["title"] == "Hooks update"
+        assert pr["residual_risk"] == 0.12
+        mock_dynamodb_backend.prs_table.get_item.assert_called_once_with(Key={"pr_key": "facebook/react#200"})
+
+    def test_get_pr_not_found_returns_none(self, mock_dynamodb_backend):
+        mock_dynamodb_backend.prs_table.get_item.return_value = {}
+        pr = mock_dynamodb_backend.get_pr("nonexistent/repo", 999)
+        assert pr is None
+
+    def test_save_pr_persists_partition_key(self, mock_dynamodb_backend):
+        pr = {"repo": "psf/requests", "pr_number": 42, "title": "TLS fix", "residual_risk": 0.29}
+        mock_dynamodb_backend.save_pr(pr)
+        mock_dynamodb_backend.prs_table.put_item.assert_called_once()
+        called_item = mock_dynamodb_backend.prs_table.put_item.call_args[1]["Item"]
+        assert called_item["pr_key"] == "psf/requests#42"
+        assert called_item["repo"] == "psf/requests"
+
+    def test_save_prs_uses_batch_writer(self, mock_dynamodb_backend):
+        batch_mock = MagicMock()
+        mock_dynamodb_backend.prs_table.batch_writer.return_value.__enter__.return_value = batch_mock
+
+        prs = [
+            {"repo": "a/b", "pr_number": 1, "residual_risk": 0.1},
+            {"repo": "a/b", "pr_number": 2, "residual_risk": 0.2},
+        ]
+        mock_dynamodb_backend.save_prs(prs)
+        assert batch_mock.put_item.call_count == 2
+
+
+class TestGetStoreWithDynamoDb:
+    def test_get_store_returns_dynamodb_when_enabled(self, monkeypatch):
+        monkeypatch.setenv("USE_DYNAMODB", "true")
+        monkeypatch.setenv("AWS_REGION", "ap-south-1")
+        monkeypatch.setenv("PRS_TABLE", "vouch-prs")
+        monkeypatch.setenv("REPOS_TABLE", "vouch-repos")
+
+        mock_resource = MagicMock()
+        monkeypatch.setattr("boto3.resource", mock_resource)
+
+        import dashboard.store as store_mod
+        store_mod._GLOBAL_STORE = None
+
+        st = get_store()
+        assert isinstance(st, DynamoDbStorageBackend)
+        assert st.region_name == "ap-south-1"
+
+        # Reset singleton after test
+        store_mod._GLOBAL_STORE = None
+
 

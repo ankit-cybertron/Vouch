@@ -24,9 +24,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-DATA_DIR = Path(__file__).parent.parent / "data"
-REPOS_JSON_PATH = DATA_DIR / "repos.json"
-PRS_JSON_PATH = DATA_DIR / "prs.json"
+DATA_DIR = Path(os.environ.get("VOUCH_DATA_DIR") or (Path(__file__).parent.parent / "data"))
+REPOS_JSON_PATH = Path(os.environ.get("VOUCH_REPOS_JSON") or (DATA_DIR / "repos.json"))
+PRS_JSON_PATH = Path(os.environ.get("VOUCH_PRS_JSON") or (DATA_DIR / "prs.json"))
 
 
 class StorageBackend(ABC):
@@ -66,31 +66,22 @@ class StorageBackend(ABC):
 class JsonStorageBackend(StorageBackend):
     """Thread-safe local JSON persistence backend with atomic writes."""
 
-    def __init__(self, repos_path: Path = REPOS_JSON_PATH, prs_path: Path = PRS_JSON_PATH):
-        self.repos_path = repos_path
-        self.prs_path = prs_path
+    def __init__(self, repos_path: Path | None = None, prs_path: Path | None = None):
+        base_dir = Path(os.environ.get("VOUCH_DATA_DIR") or (Path(__file__).parent.parent / "data"))
+        self.repos_path = repos_path or Path(os.environ.get("VOUCH_REPOS_JSON") or (base_dir / "repos.json"))
+        self.prs_path = prs_path or Path(os.environ.get("VOUCH_PRS_JSON") or (base_dir / "prs.json"))
         self.lock = threading.Lock()
         self._ensure_initialized()
 
     def _ensure_initialized(self) -> None:
-        """Initialize data directory and default JSON seeds if missing."""
+        """Initialize data directory and JSON persistence files if missing."""
         self.repos_path.parent.mkdir(parents=True, exist_ok=True)
 
         if not self.repos_path.exists():
-            try:
-                from dashboard.seeds import DEFAULT_REPOS
-                self._atomic_write(self.repos_path, DEFAULT_REPOS)
-            except Exception as e:
-                logger.warning("Could not load default repos seeds: %s", e)
-                self._atomic_write(self.repos_path, {})
+            self._atomic_write(self.repos_path, {})
 
         if not self.prs_path.exists():
-            try:
-                from dashboard.seeds import DEMO_PRS
-                self._atomic_write(self.prs_path, DEMO_PRS)
-            except Exception as e:
-                logger.warning("Could not load default prs seeds: %s", e)
-                self._atomic_write(self.prs_path, [])
+            self._atomic_write(self.prs_path, [])
 
     def _atomic_write(self, target_path: Path, data: Any) -> None:
         """Write JSON data to a temporary file then atomically replace target."""
@@ -198,18 +189,39 @@ class DynamoDbStorageBackend(StorageBackend):
         self,
         prs_table_name: str = "vouch-prs",
         repos_table_name: str = "vouch-repos",
-        region_name: str = "us-east-1",
+        region_name: str = "ap-south-1",
     ):
         import boto3
-        self.region_name = os.environ.get("AWS_REGION", region_name)
+
+        self.region_name = (
+            os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or region_name
+        ).strip()
+        prs_name = (os.environ.get("PRS_TABLE") or prs_table_name).strip()
+        repos_name = (os.environ.get("REPOS_TABLE") or repos_table_name).strip()
+
+        if not self.region_name:
+            raise ValueError("DynamoDbStorageBackend: AWS_REGION must be configured and non-empty.")
+        if not prs_name:
+            raise ValueError("DynamoDbStorageBackend: PRS_TABLE must be configured and non-empty.")
+        if not repos_name:
+            raise ValueError("DynamoDbStorageBackend: REPOS_TABLE must be configured and non-empty.")
+
+        self.prs_table_name = prs_name
+        self.repos_table_name = repos_name
+
         self.dynamodb = boto3.resource("dynamodb", region_name=self.region_name)
-        self.prs_table = self.dynamodb.Table(os.environ.get("PRS_TABLE", prs_table_name))
-        self.repos_table = self.dynamodb.Table(os.environ.get("REPOS_TABLE", repos_table_name))
+        self.prs_table = self.dynamodb.Table(self.prs_table_name)
+        self.repos_table = self.dynamodb.Table(self.repos_table_name)
 
     def _serialize_floats(self, obj: Any) -> Any:
         """Convert float values to Decimal for DynamoDB serialization."""
         if isinstance(obj, float):
-            return Decimal(str(obj))
+            import math
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return Decimal(str(round(obj, 6)))
         if isinstance(obj, dict):
             return {k: self._serialize_floats(v) for k, v in obj.items()}
         if isinstance(obj, list):
@@ -227,32 +239,48 @@ class DynamoDbStorageBackend(StorageBackend):
         return obj
 
     def get_repos(self) -> dict[str, dict]:
+        """Return mapping of full_name -> repo_metadata, handling empty tables gracefully."""
         try:
             res = self.repos_table.scan()
             items = res.get("Items", [])
             repos = {}
             for it in items:
                 clean = self._deserialize_decimals(it)
-                repos[clean["full_name"]] = clean
+                key = clean.get("full_name") or (
+                    f"{clean.get('owner')}/{clean.get('repo')}" if clean.get("owner") and clean.get("repo") else ""
+                )
+                if key:
+                    repos[key] = clean
             return repos
         except Exception as e:
             logger.error("DynamoDB get_repos failed: %s", e)
             return {}
 
     def save_repo(self, repo_meta: dict) -> None:
+        """Save or update repository metadata in vouch-repos."""
         try:
-            item = self._serialize_floats(repo_meta)
+            item = self._serialize_floats(dict(repo_meta))
+            if "full_name" not in item:
+                if item.get("owner") and item.get("repo"):
+                    item["full_name"] = f"{item['owner']}/{item['repo']}"
+            if "full_name" not in item:
+                logger.error("DynamoDB save_repo: missing required partition key 'full_name'")
+                return
             self.repos_table.put_item(Item=item)
         except Exception as e:
             logger.error("DynamoDB save_repo failed: %s", e)
 
     def get_prs(self, repo: str | None = None) -> list[dict]:
+        """
+        Return pull requests, optionally querying the repo-index GSI when filtering by repository.
+        Returns empty list gracefully if table/query is empty.
+        """
         try:
             if repo:
                 from boto3.dynamodb.conditions import Key
                 res = self.prs_table.query(
                     IndexName="repo-index",
-                    KeyConditionExpression=Key("repo").eq(repo.lower()),
+                    KeyConditionExpression=Key("repo").eq(repo),
                 )
             else:
                 res = self.prs_table.scan()
@@ -262,8 +290,9 @@ class DynamoDbStorageBackend(StorageBackend):
             return []
 
     def get_pr(self, repo: str, pr_number: int) -> dict | None:
+        """Return single pull request by pr_key partition key, returning None if absent."""
         try:
-            pr_key = f"{repo.lower()}#{pr_number}"
+            pr_key = f"{repo}#{pr_number}"
             res = self.prs_table.get_item(Key={"pr_key": pr_key})
             item = res.get("Item")
             return self._deserialize_decimals(item) if item else None
@@ -272,15 +301,44 @@ class DynamoDbStorageBackend(StorageBackend):
             return None
 
     def save_pr(self, pr: dict) -> None:
+        """Save or update a single PR in vouch-prs."""
         try:
-            item = self._serialize_floats(pr)
+            item = self._serialize_floats(dict(pr))
+            if "pr_key" not in item:
+                r = item.get("repo", "")
+                n = item.get("pr_number", "")
+                if r and n:
+                    item["pr_key"] = f"{r}#{n}"
+            if "repo" not in item and "pr_key" in item and "#" in str(item["pr_key"]):
+                item["repo"] = str(item["pr_key"]).split("#")[0]
+            if "pr_key" not in item:
+                logger.error("DynamoDB save_pr: missing required partition key 'pr_key'")
+                return
             self.prs_table.put_item(Item=item)
         except Exception as e:
             logger.error("DynamoDB save_pr failed: %s", e)
 
     def save_prs(self, prs: list[dict]) -> None:
-        for pr in prs:
-            self.save_pr(pr)
+        """Batch save pull requests using batch_writer for efficient BatchWriteItem operations."""
+        if not prs:
+            return
+        try:
+            with self.prs_table.batch_writer() as batch:
+                for pr in prs:
+                    item = self._serialize_floats(dict(pr))
+                    if "pr_key" not in item:
+                        r = item.get("repo", "")
+                        n = item.get("pr_number", "")
+                        if r and n:
+                            item["pr_key"] = f"{r}#{n}"
+                    if "repo" not in item and "pr_key" in item and "#" in str(item["pr_key"]):
+                        item["repo"] = str(item["pr_key"]).split("#")[0]
+                    if "pr_key" in item:
+                        batch.put_item(Item=item)
+        except Exception as e:
+            logger.error("DynamoDB save_prs batch_writer failed, falling back to individual puts: %s", e)
+            for pr in prs:
+                self.save_pr(pr)
 
 
 _GLOBAL_STORE: StorageBackend | None = None
@@ -294,10 +352,10 @@ def get_store() -> StorageBackend:
 
     use_ddb = os.environ.get("USE_DYNAMODB", "").strip().lower() in ("true", "1", "yes")
     if use_ddb:
-        logger.info("Initializing DynamoDB storage backend.")
+        logger.info("Initializing DynamoDB storage backend (USE_DYNAMODB=true).")
         _GLOBAL_STORE = DynamoDbStorageBackend()
     else:
-        logger.info("Initializing Local JSON storage backend.")
+        logger.info("Initializing Local JSON storage backend (USE_DYNAMODB=false).")
         _GLOBAL_STORE = JsonStorageBackend()
 
     return _GLOBAL_STORE

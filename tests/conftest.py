@@ -12,9 +12,28 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Ensure repo root is on sys.path
+import shutil
+import tempfile
+
+# Ensure repo root is on sys.path
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# Isolate storage for tests to avoid writing to workspace data/prs.json
+_TEST_TMP_DIR = tempfile.TemporaryDirectory()
+_TEST_DATA_PATH = Path(_TEST_TMP_DIR.name)
+_SRC_DATA_DIR = REPO_ROOT / "data"
+
+if (_SRC_DATA_DIR / "repos.json").exists():
+    shutil.copy(_SRC_DATA_DIR / "repos.json", _TEST_DATA_PATH / "repos.json")
+else:
+    (_TEST_DATA_PATH / "repos.json").write_text("{}", encoding="utf-8")
+(_TEST_DATA_PATH / "prs.json").write_text("[]", encoding="utf-8")
+
+os.environ["VOUCH_DATA_DIR"] = str(_TEST_DATA_PATH)
+os.environ["VOUCH_REPOS_JSON"] = str(_TEST_DATA_PATH / "repos.json")
+os.environ["VOUCH_PRS_JSON"] = str(_TEST_DATA_PATH / "prs.json")
 
 # Set test environment flags before importing app
 os.environ["PRS_TABLE"] = "test-prs"

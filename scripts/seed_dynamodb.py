@@ -68,7 +68,7 @@ def seed_pull_requests(table, prs_data: list[dict]) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Seed DynamoDB tables from local JSON files.")
-    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"), help="AWS region")
+    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "ap-south-1"), help="AWS region")
     parser.add_argument("--prs-table", default=os.environ.get("PRS_TABLE", "vouch-prs"), help="DynamoDB PRs table name")
     parser.add_argument("--repos-table", default=os.environ.get("REPOS_TABLE", "vouch-repos"), help="DynamoDB Repos table name")
     parser.add_argument("--data-dir", default=str(Path(__file__).parent.parent / "data"), help="Path to data directory")
