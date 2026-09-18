@@ -7,7 +7,7 @@ The Vouch dashboard is a lightweight, responsive Flask web application designed 
 ## 1. Application Architecture
 
 - **Entrypoint**: `main.py` / `dashboard/app.py`
-- **Seed Data & Fallback Catalogs**: `dashboard/seeds.py`
+- **Persistence & Store Layer**: `dashboard/store.py` (Dual-mode JSON & DynamoDB)
 - **Templates**: `dashboard/templates/` (`base.html`, `landing.html`, `repos.html`, `board.html`, `team_health.html`, `pr_detail.html`, `404.html`)
 - **Static Assets**: `dashboard/static/css/styles.css`
 
@@ -73,3 +73,26 @@ Vouch supports two authentication flows:
 2. **Personal Access Token Fallback**:
    - Developers or evaluators can input a fine-grained or classic GitHub Personal Access Token (`read:user`, `repo`).
    - Token is stored securely in the Flask server-side session and used for GitHub API rate-limit elevation.
+
+---
+
+## 5. Storage & DynamoDB Configuration
+
+Vouch employs a unified persistence adapter (`dashboard/store.py`).
+
+### Local Mode (Default)
+When `USE_DYNAMODB` is omitted or `false`, data is persisted locally in atomic JSON files (`data/repos.json` and `data/prs.json`).
+
+### DynamoDB Production Mode (`USE_DYNAMODB=true`)
+When running in production (e.g. AWS Elastic Beanstalk), set the following environment variables:
+
+```bash
+USE_DYNAMODB=true
+AWS_REGION=ap-south-1
+REPOS_TABLE=vouch-repos
+PRS_TABLE=vouch-prs
+```
+
+- **Authentication**: Boto3 automatically discovers credentials from the EC2 instance profile (`aws-elasticbeanstalk-ec2-role`). No access keys or secrets should be configured.
+- **Index**: Queries filtering PRs by repository leverage the `repo-index` GSI on `vouch-prs`.
+- **Batching**: Bulk PR writes use `batch_writer()` (`BatchWriteItem`).

@@ -78,30 +78,39 @@ Vouch incorporates a **Dual-Mode Storage Adapter (`dashboard/store.py`)** that u
 - **Concurrency & Safety**: Thread-safe with atomic file writes (`write to .tmp -> flush -> fsync -> atomic rename`) preventing partial file writes.
 
 ### 2. DynamoDB Production Mode (`USE_DYNAMODB=true`)
-- When deploying to AWS Lambda or setting `USE_DYNAMODB=true`, the storage adapter seamlessly switches to Amazon DynamoDB using `boto3.resource("dynamodb")`.
-- Batch seeding script `scripts/seed_dynamodb.py` allows instant migration of local seed catalogs into production DynamoDB tables.
+- When deploying to AWS Elastic Beanstalk or Lambda, setting `USE_DYNAMODB=true` seamlessly switches the storage adapter to Amazon DynamoDB using `boto3.resource("dynamodb")`.
+- Authentication uses boto3's standard credential provider chain (e.g. Elastic Beanstalk EC2 instance profile `aws-elasticbeanstalk-ec2-role`).
+- Configuration environment variables:
+  ```bash
+  USE_DYNAMODB=true
+  AWS_REGION=ap-south-1
+  REPOS_TABLE=vouch-repos
+  PRS_TABLE=vouch-prs
+  ```
+- Batch write support: `save_prs()` leverages `batch_writer()` for bulk PR writes (requires IAM `dynamodb:BatchWriteItem`).
 
 ---
 
 ## 3. DynamoDB Table Specifications
 
-### `vouch-events` (Audit & Ingest Log)
-- **Partition Key**: `event_id` (String - UUID or GitHub Delivery ID)
-- **Attributes**: `repo`, `event_type`, `action`, `received_at`, `payload_s3_key`
-- **TTL**: 30 days
+### `vouch-repos` (Repository Catalog Store)
+- **Partition Key**: `full_name` (String — e.g. `kubernetes/kubernetes`)
+- **Attributes**: `owner`, `repo`, `description`, `stars`, `forks`, `language`, `language_color`, `is_public`, `active_prs_count`, `closed_prs_count`, `avg_residual_risk`, `last_fetched_at`
 
 ### `vouch-prs` (Pull Request & Scoring Store)
-- **Partition Key**: `pr_key` (String - `{owner}/{repo}#{number}`)
-- **Sort Key**: `version` (Number - incremented per update/review)
+- **Partition Key**: `pr_key` (String — e.g. `kubernetes/kubernetes#140058`)
+- **Global Secondary Index (GSI)**:
+  - **Index Name**: `repo-index`
+  - **Partition Key**: `repo` (String — e.g. `kubernetes/kubernetes`)
+  - **Projection**: `ALL`
 - **Attributes**:
   - `repo`, `pr_number`, `title`, `author`, `state`
   - `change_risk`, `review_confidence`, `residual_risk`
   - `depth_score`, `attention_state`, `time_adequacy`, `reviewer_familiarity`
-  - `top_features` (List of feature names & Shapley/gain contributions)
+  - `top_features` (List of feature names & contribution weights)
   - `comments` (Classified inline comments & weights)
   - `explanation` (Generated narrative or fallback)
   - `re_queued` (Boolean)
-  - `re_queued_reviewer` (String)
 
 ### `vouch-files` (Precomputed File Churn & Defect History)
 - **Partition Key**: `repo` (String)
