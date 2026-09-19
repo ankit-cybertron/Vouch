@@ -910,3 +910,17 @@ setInterval(async function () {
   } catch (e) { }
 }, 30000);
 
+
+// Reviewer search keyboard shortcut: press / to focus search
+document.addEventListener('keydown', function(e) {
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT'
+      && document.activeElement.tagName !== 'TEXTAREA') {
+    const searchInput = document.getElementById('reviewer-search-input');
+    if (searchInput) {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  }
+});
+
+

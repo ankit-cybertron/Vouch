@@ -231,3 +231,137 @@ def generate_groq_explanation(
         "error": last_error or "None of the configured Groq models were reachable for your account.",
     }
 
+
+def generate_reviewer_intervention(reviewer_data: dict) -> str:
+    """
+    Generate reviewer fatigue intervention using Groq.
+    Raises exception on failure so caller can fall through to fallback templates.
+    """
+    token = resolve_groq_api_key()
+    if not token:
+        raise ValueError("GROQ_API_KEY is not configured.")
+
+    from explain.prompts import REVIEWER_INTERVENTION_SYSTEM, REVIEWER_INTERVENTION_USER
+
+    user_content = REVIEWER_INTERVENTION_USER.format(
+        payload_json=json.dumps(reviewer_data, indent=2)
+    )
+
+    # Candidate models for reviewer intervention
+    models_to_try = [
+        os.environ.get("GROQ_MODEL_ID"),
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "qwen/qwen3.8-27b",
+    ]
+    models_to_try = [m for m in models_to_try if m]
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    last_exc = None
+    for model in models_to_try:
+        try:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": REVIEWER_INTERVENTION_SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": 0.0,
+                "max_tokens": 120,
+            }
+            resp = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data["choices"][0]["message"]["content"].strip()
+                if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+                    text = text[1:-1].strip()
+                return text
+            elif resp.status_code == 404:
+                continue
+            else:
+                last_exc = RuntimeError(f"Groq API error HTTP {resp.status_code}: {resp.text}")
+        except Exception as exc:
+            last_exc = exc
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Groq intervention generation failed.")
+
+
+def generate_reviewer_intervention_with_meta(reviewer_data: dict) -> tuple[str, str]:
+    """
+    Generate reviewer fatigue intervention using Groq.
+    Returns (text, model_display_name).
+    """
+    token = resolve_groq_api_key()
+    if not token:
+        raise ValueError("GROQ_API_KEY is not configured.")
+
+    from explain.prompts import REVIEWER_INTERVENTION_SYSTEM, REVIEWER_INTERVENTION_USER
+
+    user_content = REVIEWER_INTERVENTION_USER.format(
+        payload_json=json.dumps(reviewer_data, indent=2)
+    )
+
+    models_to_try = [
+        os.environ.get("GROQ_MODEL_ID"),
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "qwen/qwen3.8-27b",
+    ]
+    models_to_try = [m for m in models_to_try if m]
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    last_exc = None
+    for model in models_to_try:
+        try:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": REVIEWER_INTERVENTION_SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": 0.0,
+                "max_tokens": 120,
+            }
+            resp = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data["choices"][0]["message"]["content"].strip()
+                if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+                    text = text[1:-1].strip()
+                model_name = f"Groq {model}"
+                return text, model_name
+            elif resp.status_code == 404:
+                continue
+            else:
+                last_exc = RuntimeError(f"Groq API error HTTP {resp.status_code}: {resp.text}")
+        except Exception as exc:
+            last_exc = exc
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Groq intervention generation failed.")
+
+
+class GroqClient:
+    """Wrapper class for Groq LLM operations."""
+
+    def generate_reviewer_intervention(self, reviewer_data: dict) -> str:
+        return generate_reviewer_intervention(reviewer_data)
+
+    def generate_reviewer_intervention_with_meta(self, reviewer_data: dict) -> tuple[str, str]:
+        return generate_reviewer_intervention_with_meta(reviewer_data)
+
+    def generate_explanation(self, **kwargs) -> dict:
+        return generate_groq_explanation(**kwargs)
+
+

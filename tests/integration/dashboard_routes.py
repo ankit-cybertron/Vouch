@@ -75,3 +75,60 @@ class TestDashboardCoreRoutes:
 
         assert "404" in html
         assert "Not Found" in html
+
+    def test_pulls_direct_visit_shows_hero_search(self, client):
+        """GET /pulls directly renders clean hero repository search selector."""
+        res = client.get("/pulls")
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+        assert "hero-search-page" in html
+        assert "Pull Requests Intelligence" in html
+        assert "data-smart-repo" in html
+
+    def test_team_health_direct_visit_shows_hero_search(self, client):
+        """GET /team-health directly renders clean hero repository search selector."""
+        res = client.get("/team-health")
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+        assert "hero-search-page" in html
+        assert "Team Review Health" in html
+        assert "data-smart-repo" in html
+
+    def test_smart_repos_search_api(self, client):
+        """GET /api/repos/search returns live typeahead suggestions."""
+        res = client.get("/api/repos/search?q=k8s")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert "results" in data
+        assert "query" in data
+        assert data["query"] == "k8s"
+
+
+class TestReviewerRoutes:
+    def test_reviewer_search_page_200(self, client):
+        response = client.get("/reviewer")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "Reviewer Profiles" in html
+        assert "reviewer-search-input" in html
+
+    def test_reviewer_profile_not_found(self, client, mock_github_404):
+        response = client.get("/reviewer/this-user-does-not-exist-xyz")
+        assert response.status_code == 404
+        html = response.get_data(as_text=True)
+        assert "No GitHub user found" in html
+
+    def test_reviewer_api_endpoint(self, client):
+        response = client.get("/api/reviewer/torvalds")
+        assert response.status_code in (200, 404)
+        if response.status_code == 200:
+            data = response.get_json()
+            assert "grade" in data
+            assert "fatigue_state" in data
+            assert "priority_queue" in data
+
+    def test_reviewer_cache_refresh(self, client):
+        response = client.get("/api/reviewer/testuser/refresh")
+        assert response.status_code == 200
+        assert response.get_json() == {"status": "cache cleared", "username": "testuser"}
+

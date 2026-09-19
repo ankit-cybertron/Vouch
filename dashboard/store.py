@@ -62,6 +62,17 @@ class StorageBackend(ABC):
         """Batch insert or update scored PR records."""
         ...
 
+    @abstractmethod
+    def get_prs_by_reviewer(self, username: str) -> list[dict]:
+        """Return all PRs where the reviewer is assigned or reviewed."""
+        ...
+
+    @abstractmethod
+    def get_all_reviewer_usernames(self, limit: int | None = 50) -> list[str]:
+        """Return distinct reviewer usernames across all PRs sorted by recency."""
+        ...
+
+
 
 class JsonStorageBackend(StorageBackend):
     """Thread-safe local JSON persistence backend with atomic writes."""
@@ -180,6 +191,83 @@ class JsonStorageBackend(StorageBackend):
             ]
             updated_list = clean_new_prs + remaining_existing
             self._atomic_write(self.prs_path, updated_list)
+
+    def get_prs_by_reviewer(self, username: str) -> list[dict]:
+        """Return all PRs where the reviewer is assigned or reviewed."""
+        try:
+            target = (username or "").strip().lower()
+            if not target:
+                return []
+            prs = self.get_prs()
+            matched = []
+            for p in prs:
+                reviewers = p.get("reviewers")
+                if isinstance(reviewers, list):
+                    if any(str(r).strip().lower() == target for r in reviewers if r):
+                        matched.append(p)
+                        continue
+                elif isinstance(reviewers, str):
+                    if reviewers.strip().lower() == target:
+                        matched.append(p)
+                        continue
+
+                reviewer_field = p.get("reviewer")
+                if isinstance(reviewer_field, str) and reviewer_field.strip().lower() == target:
+                    matched.append(p)
+            return matched
+        except Exception as e:
+            logger.error("JsonStorageBackend get_prs_by_reviewer failed: %s", e)
+            return []
+
+    def get_all_reviewer_usernames(self, limit: int | None = 50) -> list[str]:
+        """Return distinct reviewer usernames across all PRs sorted by recency."""
+        try:
+            prs = self.get_prs()
+            reviewer_recency: dict[str, float] = {}
+            ignore = {"collaborator", "unknown", "none requested", "none", ""}
+
+            for p in prs:
+                ts = p.get("reviewed_at") or p.get("scored_at") or p.get("updated_at") or p.get("created_at")
+                ts_val = 0.0
+                if isinstance(ts, (int, float)):
+                    ts_val = float(ts)
+                elif isinstance(ts, str):
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        ts_val = dt.timestamp()
+                    except Exception:
+                        ts_val = 0.0
+
+                rev_list: list[str] = []
+                r_field = p.get("reviewers")
+                if isinstance(r_field, list):
+                    rev_list.extend([str(x).strip() for x in r_field if x])
+                elif isinstance(r_field, str) and r_field.strip():
+                    rev_list.append(r_field.strip())
+
+                single_rev = p.get("reviewer")
+                if isinstance(single_rev, str) and single_rev.strip():
+                    rev_list.append(single_rev.strip())
+
+                for r in rev_list:
+                    if r.lower() not in ignore:
+                        if r not in reviewer_recency or ts_val > reviewer_recency[r]:
+                            reviewer_recency[r] = ts_val
+
+            sorted_reviewers = sorted(
+                reviewer_recency.keys(),
+                key=lambda r: reviewer_recency[r],
+                reverse=True,
+            )
+            if limit is not None and limit > 0:
+                return sorted_reviewers[:limit]
+            return sorted_reviewers
+        except Exception as e:
+            logger.error("JsonStorageBackend get_all_reviewer_usernames failed: %s", e)
+            return []
+
+
 
 
 class DynamoDbStorageBackend(StorageBackend):
@@ -339,6 +427,78 @@ class DynamoDbStorageBackend(StorageBackend):
             logger.error("DynamoDB save_prs batch_writer failed, falling back to individual puts: %s", e)
             for pr in prs:
                 self.save_pr(pr)
+
+    def get_prs_by_reviewer(self, username: str) -> list[dict]:
+        """Return all PRs where the reviewer appears in reviewers attribute."""
+        try:
+            target = (username or "").strip()
+            if not target:
+                return []
+            from boto3.dynamodb.conditions import Attr
+            res = self.prs_table.scan(
+                FilterExpression=Attr("reviewers").contains(target) | Attr("reviewer").eq(target)
+            )
+            items = res.get("Items", [])
+            while "LastEvaluatedKey" in res:
+                res = self.prs_table.scan(
+                    FilterExpression=Attr("reviewers").contains(target) | Attr("reviewer").eq(target),
+                    ExclusiveStartKey=res["LastEvaluatedKey"]
+                )
+                items.extend(res.get("Items", []))
+            return [self._deserialize_decimals(it) for it in items]
+        except Exception as e:
+            logger.error("DynamoDB get_prs_by_reviewer failed: %s", e)
+            return []
+
+    def get_all_reviewer_usernames(self, limit: int | None = 50) -> list[str]:
+        """Return distinct reviewer usernames across all PRs sorted by recency."""
+        try:
+            prs = self.get_prs()
+            reviewer_recency: dict[str, float] = {}
+            ignore = {"collaborator", "unknown", "none requested", "none", ""}
+
+            for p in prs:
+                ts = p.get("reviewed_at") or p.get("scored_at") or p.get("updated_at") or p.get("created_at")
+                ts_val = 0.0
+                if isinstance(ts, (int, float)):
+                    ts_val = float(ts)
+                elif isinstance(ts, str):
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        ts_val = dt.timestamp()
+                    except Exception:
+                        ts_val = 0.0
+
+                rev_list: list[str] = []
+                r_field = p.get("reviewers")
+                if isinstance(r_field, list):
+                    rev_list.extend([str(x).strip() for x in r_field if x])
+                elif isinstance(r_field, str) and r_field.strip():
+                    rev_list.append(r_field.strip())
+
+                single_rev = p.get("reviewer")
+                if isinstance(single_rev, str) and single_rev.strip():
+                    rev_list.append(single_rev.strip())
+
+                for r in rev_list:
+                    if r.lower() not in ignore:
+                        if r not in reviewer_recency or ts_val > reviewer_recency[r]:
+                            reviewer_recency[r] = ts_val
+
+            sorted_reviewers = sorted(
+                reviewer_recency.keys(),
+                key=lambda r: reviewer_recency[r],
+                reverse=True,
+            )
+            if limit is not None and limit > 0:
+                return sorted_reviewers[:limit]
+            return sorted_reviewers
+        except Exception as e:
+            logger.error("DynamoDB get_all_reviewer_usernames failed: %s", e)
+            return []
+
+
 
 
 _GLOBAL_STORE: StorageBackend | None = None

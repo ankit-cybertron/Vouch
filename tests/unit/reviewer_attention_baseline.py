@@ -104,3 +104,94 @@ class TestBaselineUpdate:
         assert updated["review_count"] == 6
         assert 140.0 in updated["seconds_per_kloc_window"]
         assert mock_save.called
+
+
+class TestReviewerProfileAndFatigue:
+    @patch("dashboard.app._fetch_gh_user_profile", return_value=({"login": "alice", "name": "Alice"}, False, False))
+    @patch("dashboard.app._fetch_gh_user_prs", return_value=([], False))
+    @patch("dashboard.app._fetch_gh_user_events", return_value=([], False))
+    def test_reviewer_grade_A(self, mock_ev, mock_prs, mock_prof):
+        # avg_depth >= 0.65, rubber_stamp_rate < 0.10 -> grade A
+        from dashboard.app import _build_reviewer_profile
+        mock_vouch_prs = [
+            {"repo": "org/repo", "number": 1, "review_depth": 0.85, "change_risk": 0.3},
+            {"repo": "org/repo", "number": 2, "review_depth": 0.75, "change_risk": 0.4},
+            {"repo": "org/repo", "number": 3, "review_depth": 0.70, "change_risk": 0.2},
+        ]
+        with patch("dashboard.app.store.get_prs_by_reviewer", return_value=mock_vouch_prs):
+            profile = _build_reviewer_profile("alice")
+            assert profile["grade"] == "A"
+            assert profile["avg_depth_score"] >= 0.65
+            assert profile["rubber_stamp_rate"] < 0.10
+
+    @patch("dashboard.app._fetch_gh_user_profile", return_value=({"login": "bob", "name": "Bob"}, False, False))
+    @patch("dashboard.app._fetch_gh_user_prs", return_value=([], False))
+    @patch("dashboard.app._fetch_gh_user_events", return_value=([], False))
+    def test_reviewer_grade_D(self, mock_ev, mock_prs, mock_prof):
+        # avg_depth < 0.25, rubber_stamp_rate >= 0.45 -> grade D
+        from dashboard.app import _build_reviewer_profile
+        mock_vouch_prs = [
+            {"repo": "org/repo", "number": 1, "review_depth": 0.05, "change_risk": 0.7},
+            {"repo": "org/repo", "number": 2, "review_depth": 0.10, "change_risk": 0.8},
+            {"repo": "org/repo", "number": 3, "review_depth": 0.12, "change_risk": 0.5},
+        ]
+        with patch("dashboard.app.store.get_prs_by_reviewer", return_value=mock_vouch_prs):
+            profile = _build_reviewer_profile("bob")
+            assert profile["grade"] == "D"
+            assert profile["avg_depth_score"] < 0.25
+            assert profile["rubber_stamp_rate"] >= 0.45
+
+    @patch("dashboard.app._fetch_gh_user_profile", return_value=({"login": "charlie"}, False, False))
+    @patch("dashboard.app._fetch_gh_user_prs", return_value=([], False))
+    @patch("dashboard.app._fetch_gh_user_events", return_value=([], False))
+    def test_fatigue_state_high(self, mock_ev, mock_prs, mock_prof):
+        # consecutive_today >= 8 -> state == "high"
+        import time
+        from dashboard.app import _build_reviewer_profile
+        now = time.time()
+        mock_vouch_prs = [
+            {"repo": "org/repo", "number": i, "review_depth": 0.5, "scored_at": now - (i * 60)}
+            for i in range(10)
+        ]
+        with patch("dashboard.app.store.get_prs_by_reviewer", return_value=mock_vouch_prs):
+            profile = _build_reviewer_profile("charlie")
+            assert profile["fatigue_state"]["state"] == "high"
+            assert profile["fatigue_state"]["consecutive_reviews_today"] == 10
+
+    @patch("dashboard.app._fetch_gh_user_profile", return_value=({"login": "dan"}, False, False))
+    @patch("dashboard.app._fetch_gh_user_prs", return_value=([], False))
+    @patch("dashboard.app._fetch_gh_user_events", return_value=([], False))
+    def test_fatigue_cold_start(self, mock_ev, mock_prs, mock_prof):
+        # < 3 reviews -> slope = 0.0, no crash
+        from dashboard.app import _build_reviewer_profile
+        mock_vouch_prs = [
+            {"repo": "org/repo", "number": 1, "review_depth": 0.6, "scored_at": 1000},
+            {"repo": "org/repo", "number": 2, "review_depth": 0.7, "scored_at": 2000},
+        ]
+        with patch("dashboard.app.store.get_prs_by_reviewer", return_value=mock_vouch_prs):
+            profile = _build_reviewer_profile("dan")
+            assert profile["fatigue_state"]["session_depth_trend"] == 0.0
+            assert profile["fatigue_state"]["state"] in ("healthy", "moderate")
+
+    @patch("dashboard.app._fetch_gh_user_profile", return_value=({"login": "eva"}, False, False))
+    @patch("dashboard.app._fetch_gh_user_prs", return_value=([], False))
+    @patch("dashboard.app._fetch_gh_user_events", return_value=([], False))
+    def test_priority_queue_ranking(self, mock_ev, mock_prs, mock_prof):
+        # PRs sorted by change_risk DESC
+        from dashboard.app import _build_reviewer_profile
+        mock_vouch_prs = [
+            {"repo": "org/repo", "number": 1, "state": "open", "reviewer": "eva", "change_risk": 0.25},
+            {"repo": "org/repo", "number": 2, "state": "open", "reviewer": "eva", "change_risk": 0.95},
+            {"repo": "org/repo", "number": 3, "state": "open", "reviewer": "eva", "change_risk": 0.65},
+        ]
+        with patch("dashboard.app.store.get_prs_by_reviewer", return_value=mock_vouch_prs):
+            profile = _build_reviewer_profile("eva")
+            queue = profile["priority_queue"]
+            assert len(queue) == 3
+            assert queue[0]["number"] == 2
+            assert queue[0]["change_risk"] == 0.95
+            assert queue[1]["number"] == 3
+            assert queue[1]["change_risk"] == 0.65
+            assert queue[2]["number"] == 1
+            assert queue[2]["change_risk"] == 0.25
+

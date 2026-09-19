@@ -153,3 +153,11 @@ def mock_github_app_auth():
     with patch("dashboard.app.github_app_auth", mock), \
          patch("dashboard.github_app.github_app_auth", mock):
         yield mock
+
+
+@pytest.fixture
+def mock_github_404():
+    """Mock GitHub API returning 404 Not Found for user profile lookup."""
+    with patch("dashboard.app._fetch_gh_user_profile", return_value=({}, True, False)):
+        yield
+

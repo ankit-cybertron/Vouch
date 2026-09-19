@@ -294,6 +294,9 @@ LANGUAGE_COLORS = {
 
 FETCHED_REPOS: dict[str, dict] = {}
 REPO_PRS_CACHE: dict[str, list[dict]] = {}
+_reviewer_cache: dict = {}   # {username: {"data": dict, "ts": float}}
+REVIEWER_CACHE_TTL: int = 300  # 5 minutes
+
 
 
 
@@ -1400,9 +1403,15 @@ def repos_page():
             or search in r.get("language", "").lower()
         ]
 
+    for r in repos_list:
+        r.setdefault("avg_residual_risk", 0.0)
+        r.setdefault("active_prs_count", 0)
+        r.setdefault("closed_prs_count", 0)
+
     # Ensure ankit-cybertron/Vouch is always prioritized and sorted first
     vouch_key = DEFAULT_INITIAL_REPO.lower()
     repos_list.sort(key=lambda r: 0 if r.get("full_name", "").lower() == vouch_key else 1)
+
 
     return render_template(
         "repos.html",
@@ -1927,17 +1936,35 @@ def repo_view(owner: str, repo_name: str):
 @app.route("/pulls")
 @app.route("/board")
 def board():
-    """General PR board — defaults to first repository or query."""
+    """General PR board — clean hero search page when visited directly, or repository PR board."""
     repo_arg = request.args.get("repo", "").strip()
     if repo_arg:
         parsed = _parse_repo_input(repo_arg)
         if parsed:
             return repo_view(parsed[0], parsed[1])
 
-    if FETCHED_REPOS:
-        first_repo = next(iter(FETCHED_REPOS.values()))
-        return repo_view(first_repo["owner"], first_repo["repo"])
-    return redirect("/repos")
+    recent_repos = []
+    seen = set()
+    for repo_dict in list(FETCHED_REPOS.values()):
+        fn = repo_dict.get("full_name") or f"{repo_dict.get('owner')}/{repo_dict.get('repo')}"
+        if fn and fn not in seen:
+            seen.add(fn)
+            recent_repos.append(repo_dict)
+
+    total_prs = sum(len(prs) for prs in REPO_PRS_CACHE.values())
+    total_repos = len(FETCHED_REPOS)
+
+    return render_template(
+        "board.html",
+        mode="search",
+        recent_repos=recent_repos[:12],
+        total_prs=total_prs,
+        total_repos=total_repos,
+        current_repo=None,
+        active_repo_name=None,
+        prs=[],
+        stats={"total_scored": 0, "total_prs": total_prs, "high_risk_flagged": 0, "medium_risk_count": 0, "avg_residual_risk": 0},
+    )
 
 
 @app.route("/api/clear-repos", methods=["POST"])
@@ -2462,10 +2489,30 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
 @app.route("/team-health")
 @app.route("/validation")
 def team_health():
-    repo_filter = request.args.get("repo", "all")
+    repo_arg = request.args.get("repo", None)
+    if not repo_arg:
+        recent_repos = []
+        seen = set()
+        for repo_dict in list(FETCHED_REPOS.values()):
+            fn = repo_dict.get("full_name") or f"{repo_dict.get('owner')}/{repo_dict.get('repo')}"
+            if fn and fn not in seen:
+                seen.add(fn)
+                recent_repos.append(repo_dict)
+        return render_template(
+            "team_health.html",
+            mode="search",
+            recent_repos=recent_repos[:12],
+            total_repos=len(FETCHED_REPOS),
+            repos=list(FETCHED_REPOS.values()),
+            active_repo=None,
+            health=_compute_team_health(repo_filter="all"),
+        )
+
+    repo_filter = repo_arg
     health_data = _compute_team_health(repo_filter=repo_filter)
     return render_template(
         "team_health.html",
+        mode="report",
         health=health_data,
         repos=list(FETCHED_REPOS.values()),
         active_repo=repo_filter,
@@ -2497,6 +2544,58 @@ def api_repos():
     return jsonify({
         "repos": list(FETCHED_REPOS.values()),
         "total": len(FETCHED_REPOS),
+    })
+
+
+@app.route("/api/repos/search")
+def api_repos_search():
+    """Smart repository search endpoint matching query against fetched and stored repositories."""
+    q = request.args.get("q", "").strip().lower()
+    all_repos = dict(FETCHED_REPOS)
+    try:
+        for name, meta in store.get_repos().items():
+            if name not in all_repos:
+                all_repos[name] = meta
+    except Exception:
+        pass
+
+    results = []
+    for full_name, r in all_repos.items():
+        fname = (r.get("full_name") or full_name).lower()
+        desc = (r.get("description") or "").lower()
+        lang = (r.get("language") or "").lower()
+        owner = r.get("owner", "")
+        repo = r.get("repo", "")
+        if not q or (q in fname or q in desc or q in lang or q in owner.lower() or q in repo.lower()):
+            results.append({
+                "full_name": r.get("full_name") or full_name,
+                "owner": owner or (full_name.split("/")[0] if "/" in full_name else ""),
+                "repo": repo or (full_name.split("/")[1] if "/" in full_name else full_name),
+                "description": r.get("description", ""),
+                "stars": r.get("stars", "—"),
+                "language": r.get("language", "Code"),
+                "language_color": r.get("language_color", "#586069"),
+                "active_prs_count": r.get("active_prs_count", 0),
+            })
+
+    vouch_name = DEFAULT_INITIAL_REPO.lower()
+    def _rank(item):
+        fn = item["full_name"].lower()
+        if fn == q:
+            return 0
+        if q and fn.startswith(q):
+            return 1
+        if q and q in fn.split("/")[-1]:
+            return 2
+        if fn == vouch_name:
+            return 3
+        return 4
+
+    results.sort(key=lambda x: (_rank(x), x["full_name"].lower()))
+    return jsonify({
+        "query": q,
+        "results": results[:15],
+        "total": len(results),
     })
 
 
@@ -2869,5 +2968,533 @@ def fmt_markdown_filter(text):
     return Markup(f'<div class="gh-md-content"><p>{escaped}</p></div>')
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Reviewer Profile & Fatigue Governance
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fetch_gh_user_profile(username: str, gh_token: str | None = None) -> tuple[dict, bool, bool]:
+    """Fetch GitHub user profile. Returns (profile_dict, not_found, rate_limited)."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = (gh_token or "").strip() or _resolve_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"https://api.github.com/users/{username}"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            return resp.json(), False, False
+        elif resp.status_code == 404:
+            return {}, True, False
+        elif resp.status_code in (403, 429):
+            return {}, False, True
+        return {}, False, False
+    except Exception:
+        return {}, False, False
+
+
+def _fetch_gh_user_prs(username: str, gh_token: str | None = None) -> tuple[list, bool]:
+    """Fetch GitHub PRs reviewed by user. Returns (prs_list, rate_limited)."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = (gh_token or "").strip() or _resolve_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"https://api.github.com/search/issues?q=reviewed-by:{username}+type:pr&per_page=100"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            items = resp.json().get("items", [])
+            return items, False
+        elif resp.status_code in (403, 429):
+            return [], True
+        return [], False
+    except Exception:
+        return [], False
+
+
+def _fetch_gh_user_events(username: str, gh_token: str | None = None) -> tuple[list, bool]:
+    """Fetch GitHub user public events. Returns (events_list, rate_limited)."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = (gh_token or "").strip() or _resolve_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"https://api.github.com/users/{username}/events?per_page=100"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return (data if isinstance(data, list) else []), False
+        elif resp.status_code in (403, 429):
+            return [], True
+        return [], False
+    except Exception:
+        return [], False
+
+
+def _build_reviewer_profile(username: str, gh_token: str | None = None) -> dict:
+    """
+    Build aggregated reviewer profile combining live GitHub identity and Vouch triage data.
+    Runs concurrently across GitHub endpoints with graceful rate-limit handling.
+    """
+    clean_username = (username or "").strip()
+    if not clean_username:
+        raise ValueError("GitHub username must not be empty.")
+
+    # 1. Parallel GitHub API calls
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        f_profile = executor.submit(_fetch_gh_user_profile, clean_username, gh_token)
+        f_prs = executor.submit(_fetch_gh_user_prs, clean_username, gh_token)
+        f_events = executor.submit(_fetch_gh_user_events, clean_username, gh_token)
+
+        gh_profile, not_found, rl_profile = f_profile.result()
+        gh_prs, rl_prs = f_prs.result()
+        gh_events, rl_events = f_events.result()
+
+    if not_found:
+        raise ValueError(f"GitHub user '{clean_username}' not found")
+
+    github_rate_limited = rl_profile or rl_prs or rl_events
+    if not gh_profile and not github_rate_limited:
+        # Fallback profile identity for graceful display
+        gh_profile = {
+            "login": clean_username,
+            "name": clean_username,
+            "avatar_url": f"https://github.com/{clean_username}.png",
+        }
+    elif not gh_profile:
+        gh_profile = {
+            "login": clean_username,
+            "avatar_url": f"https://github.com/{clean_username}.png",
+        }
+
+    # 2. Vouch store aggregation & dynamic scoring for newly searched reviewer
+    vouch_prs = store.get_prs_by_reviewer(clean_username)
+
+    existing_keys = {
+        str(p.get("pr_key") or f"{p.get('repo')}#{p.get('number') or p.get('pr_number')}").lower()
+        for p in vouch_prs
+    }
+    newly_scored_prs = []
+    if gh_prs and isinstance(gh_prs, list):
+        for item in gh_prs[:30]:
+            repo_url = item.get("repository_url", "")
+            if "/repos/" not in repo_url:
+                continue
+            repo_name = repo_url.split("/repos/")[-1].strip()
+            pr_num = item.get("number")
+            if not repo_name or not pr_num:
+                continue
+            key = f"{repo_name}#{pr_num}".lower()
+            if key in existing_keys:
+                continue
+
+            pr_candidate = {
+                "pr_key": f"{repo_name}#{pr_num}",
+                "repo": repo_name,
+                "number": int(pr_num),
+                "pr_number": int(pr_num),
+                "title": item.get("title") or "",
+                "body": item.get("body") or "",
+                "state": item.get("state", "open"),
+                "created_at": item.get("created_at") or "",
+                "updated_at": item.get("updated_at") or "",
+                "closed_at": item.get("closed_at"),
+                "html_url": item.get("html_url") or f"https://github.com/{repo_name}/pull/{pr_num}",
+                "reviewer": clean_username,
+                "reviewers": [clean_username],
+                "author": (item.get("user") or {}).get("login", "unknown"),
+            }
+            try:
+                scored = _score_pr_heuristic(pr_candidate)
+                scored["reviewer"] = clean_username
+                if "reviewers" not in scored or not scored["reviewers"]:
+                    scored["reviewers"] = [clean_username]
+                elif clean_username not in scored["reviewers"]:
+                    scored["reviewers"].append(clean_username)
+                newly_scored_prs.append(scored)
+                existing_keys.add(key)
+            except Exception as e:
+                logger.debug("Heuristic scoring skipped for %s: %s", key, e)
+
+        if newly_scored_prs:
+            try:
+                store.save_prs(newly_scored_prs)
+                known_repos = store.get_repos()
+                for sp in newly_scored_prs:
+                    r_full = sp.get("repo")
+                    if r_full and r_full not in known_repos:
+                        owner_p, _, repo_p = r_full.partition("/")
+                        store.save_repo({
+                            "full_name": r_full,
+                            "owner": owner_p,
+                            "repo": repo_p,
+                            "description": f"Repository {r_full} on GitHub",
+                            "stars": "—",
+                            "forks": "—",
+                            "language": "Code",
+                            "language_color": "#586069",
+                            "is_public": True,
+                            "active_prs_count": 0,
+                            "closed_prs_count": 0,
+                            "avg_residual_risk": 0.0,
+                        })
+
+            except Exception as e:
+                logger.warning("Failed saving discovered PRs for %s: %s", clean_username, e)
+
+            vouch_prs = store.get_prs_by_reviewer(clean_username)
+
+    total_reviews_in_vouch = len(vouch_prs)
+
+
+    def _extract_depth(p: dict) -> float:
+        d = p.get("review_depth")
+        if d is None:
+            d = p.get("depth_score")
+        if d is None:
+            d = p.get("review_confidence")
+        try:
+            return float(d or 0.0)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def _extract_ts(p: dict) -> float:
+        for f in ("scored_at", "reviewed_at", "updated_at", "created_at"):
+            val = p.get(f)
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str) and val.strip():
+                try:
+                    return datetime.fromisoformat(val.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    pass
+        return 0.0
+
+    depth_scores = [_extract_depth(p) for p in vouch_prs]
+    avg_depth_score = (sum(depth_scores) / len(depth_scores)) if depth_scores else 0.0
+
+    rubber_stamps = sum(1 for d in depth_scores if d < 0.15)
+    rubber_stamp_rate = (rubber_stamps / total_reviews_in_vouch) if total_reviews_in_vouch > 0 else 0.0
+
+    high_risk_rubber_stamped = sum(
+        1 for p in vouch_prs
+        if float(p.get("change_risk", 0.0) or 0.0) >= 0.65 and _extract_depth(p) < 0.15
+    )
+
+    from collections import Counter, defaultdict
+    domain_counts = Counter()
+    for p in vouch_prs:
+        flags = p.get("path_flags") or []
+        if isinstance(flags, list):
+            for f in flags:
+                if f:
+                    domain_counts[str(f)] += 1
+        elif isinstance(flags, str) and flags:
+            domain_counts[flags] += 1
+    top_domains = domain_counts.most_common(3)
+
+    # Calibrated reviewer grade calculation
+    if (avg_depth_score >= 0.22 and rubber_stamp_rate <= 0.20) or (avg_depth_score >= 0.15 and rubber_stamp_rate <= 0.12 and high_risk_rubber_stamped == 0):
+        grade = "A"
+    elif (avg_depth_score >= 0.14 and rubber_stamp_rate <= 0.35) or (avg_depth_score >= 0.25 and rubber_stamp_rate <= 0.40):
+        grade = "B"
+    elif rubber_stamp_rate <= 0.50 and avg_depth_score >= 0.08:
+        grade = "C"
+    else:
+        grade = "D"
+
+    grade_descriptions = {
+        "A": f"Exemplary review rigor. Avg depth {avg_depth_score:.2f} with low rubber-stamp rate ({rubber_stamp_rate*100:.1f}%).",
+        "B": f"Solid review discipline. Avg depth {avg_depth_score:.2f} across active repositories.",
+        "C": f"Moderate review depth ({avg_depth_score:.2f}). {rubber_stamp_rate*100:.1f}% of reviews were quick approvals.",
+        "D": f"High rubber-stamp rate ({rubber_stamp_rate*100:.1f}%). Review depth needs attention.",
+    }
+
+    # Per-repository statistics
+    repo_groups = defaultdict(list)
+    for p in vouch_prs:
+        repo_groups[p.get("repo", "unknown")].append(p)
+
+    per_repo_stats = []
+    for repo_name, pr_list in sorted(repo_groups.items(), key=lambda x: len(x[1]), reverse=True)[:6]:
+        r_depths = [_extract_depth(p) for p in pr_list]
+        r_stamps = sum(1 for d in r_depths if d < 0.15)
+
+        sorted_prs = sorted(pr_list, key=_extract_ts)
+        prior = sorted_prs[:-5] if len(sorted_prs) > 5 else []
+        recent = sorted_prs[-5:]
+        prior_depths = [_extract_depth(p) for p in prior]
+        recent_depths = [_extract_depth(p) for p in recent]
+        prior_avg = (sum(prior_depths) / len(prior_depths)) if prior_depths else None
+        recent_avg = (sum(recent_depths) / len(recent_depths)) if recent_depths else 0.0
+
+        if prior_avg is None:
+            trend = "stable"
+        elif recent_avg > prior_avg + 0.05:
+            trend = "improving"
+        elif recent_avg < prior_avg - 0.05:
+            trend = "degrading"
+        else:
+            trend = "stable"
+
+        sparkline = [_extract_depth(p) for p in sorted_prs[-10:]]
+
+        per_repo_stats.append({
+            "repo": repo_name,
+            "reviews_count": len(pr_list),
+            "avg_depth_score": round(sum(r_depths) / len(r_depths), 3) if r_depths else 0.0,
+            "rubber_stamp_rate": round(r_stamps / len(pr_list), 3) if pr_list else 0.0,
+            "trend": trend,
+            "sparkline": sparkline,
+        })
+
+    # Fatigue state calculation
+    now_utc = datetime.now(timezone.utc)
+    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    today_prs = [p for p in vouch_prs if _extract_ts(p) >= today_start.timestamp()]
+    consecutive_today = len(today_prs)
+
+    def is_off_hours(ts: float) -> bool:
+        if not ts:
+            return False
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.hour >= 23 or dt.hour < 6
+
+    def is_weekend(ts: float) -> bool:
+        if not ts:
+            return False
+        return datetime.fromtimestamp(ts, tz=timezone.utc).weekday() >= 5
+
+    off_hours_count = sum(1 for p in vouch_prs if is_off_hours(_extract_ts(p)))
+    off_hours_pct = (off_hours_count / total_reviews_in_vouch) if total_reviews_in_vouch else 0.0
+
+    weekend_count = sum(1 for p in vouch_prs if is_weekend(_extract_ts(p)))
+    weekend_pct = (weekend_count / total_reviews_in_vouch) if total_reviews_in_vouch else 0.0
+
+    # Session depth trend: slope of last 10 review depth scores
+    last_10 = sorted(vouch_prs, key=_extract_ts)[-10:]
+    if len(last_10) >= 3:
+        depths_seq = [_extract_depth(p) for p in last_10]
+        n = len(depths_seq)
+        xs = list(range(n))
+        x_mean = sum(xs) / n
+        y_mean = sum(depths_seq) / n
+        denom = sum((x - x_mean) ** 2 for x in xs)
+        slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, depths_seq)) / denom if denom != 0 else 0.0
+    else:
+        slope = 0.0
+
+    if consecutive_today >= 8 or (off_hours_pct > 0.35 and avg_depth_score < 0.35):
+        fatigue_state_label = "high"
+    elif consecutive_today >= 4 or slope < -0.05:
+        fatigue_state_label = "moderate"
+    else:
+        fatigue_state_label = "healthy"
+
+    all_ts = [_extract_ts(p) for p in vouch_prs if _extract_ts(p) > 0]
+    last_hour = datetime.fromtimestamp(max(all_ts), tz=timezone.utc).hour if all_ts else 0
+
+    fatigue_state = {
+        "state": fatigue_state_label,
+        "z_score": round(slope * -10, 2),
+        "consecutive_reviews_today": consecutive_today,
+        "last_review_hour": last_hour,
+        "off_hours_reviews_pct": round(off_hours_pct * 100, 1),
+        "weekend_reviews_pct": round(weekend_pct * 100, 1),
+        "session_depth_trend": round(slope, 4),
+    }
+
+    # Priority queue: open PRs where reviewer is assigned
+    open_assigned = []
+    u_lower = clean_username.lower()
+    for p in vouch_prs:
+        if p.get("state") == "open":
+            r_list = p.get("reviewers") or []
+            r_single = p.get("reviewer") or ""
+            is_assigned = False
+            if isinstance(r_list, list) and any(str(r).strip().lower() == u_lower for r in r_list if r):
+                is_assigned = True
+            elif isinstance(r_list, str) and r_list.strip().lower() == u_lower:
+                is_assigned = True
+            elif isinstance(r_single, str) and r_single.strip().lower() == u_lower:
+                is_assigned = True
+
+            if is_assigned:
+                open_assigned.append(p)
+
+    open_assigned.sort(key=lambda p: float(p.get("change_risk", 0.0) or 0.0), reverse=True)
+
+    priority_queue = []
+    for p in open_assigned[:15]:
+        opened_ts = p.get("created_at")
+        wait_hours = 0.0
+        if opened_ts:
+            try:
+                if isinstance(opened_ts, (int, float)):
+                    wait_hours = (datetime.now(timezone.utc).timestamp() - float(opened_ts)) / 3600
+                else:
+                    opened_dt = datetime.fromisoformat(str(opened_ts).replace("Z", "+00:00"))
+                    wait_hours = (datetime.now(timezone.utc) - opened_dt).total_seconds() / 3600
+            except Exception:
+                pass
+
+        cr = float(p.get("change_risk", 0.0) or 0.0)
+        risk_tier = "high" if cr >= 0.65 else ("medium" if cr >= 0.35 else "low")
+        pr_num = p.get("number") or p.get("pr_number", 0)
+
+        priority_queue.append({
+            "pr_key": p.get("pr_key", f"{p.get('repo', '')}#{pr_num}"),
+            "repo": p.get("repo", ""),
+            "title": str(p.get("title", ""))[:60],
+            "number": int(pr_num),
+            "change_risk": round(cr, 3),
+            "risk_tier": risk_tier,
+            "wait_hours": round(wait_hours, 1),
+            "path_flags": p.get("path_flags", []),
+            "url": p.get("html_url", f"https://github.com/{p.get('repo', '')}/pull/{pr_num}"),
+        })
+
+    # LLM Intervention
+    next_pr = priority_queue[0] if priority_queue else None
+    trend_pct = abs(int(slope * 100)) if slope < 0 else 0
+
+    intervention_input = {
+        "reviewer": clean_username,
+        "fatigue_state": fatigue_state_label,
+        "z_score": fatigue_state["z_score"],
+        "consecutive_reviews_today": consecutive_today,
+        "session_depth_trend": slope,
+        "rubber_stamp_rate": f"{rubber_stamp_rate*100:.1f}%",
+        "off_hours_pct": f"{off_hours_pct*100:.1f}%",
+        "trend_pct": str(trend_pct),
+        "next_high_risk_pr": {
+            "repo": next_pr["repo"],
+            "number": next_pr["number"],
+            "change_risk": next_pr["change_risk"],
+            "path_flags": next_pr["path_flags"],
+            "wait_hours": next_pr["wait_hours"],
+        } if next_pr else None,
+    }
+
+    try:
+        from explain.bedrock_client import BedrockClient
+        intervention_text, intervention_bot = BedrockClient().generate_reviewer_intervention_with_meta(intervention_input)
+    except Exception as exc:
+        logger.error("Failed to generate intervention for %s: %s", clean_username, exc)
+        intervention_text = "Reviewer cadence and depth scores are monitored."
+        intervention_bot = "Vouch Rule Engine"
+
+    # Strip any emojis/pictographs from the intervention text
+    emoji_re = re.compile(
+        r"[\U00010000-\U0010ffff\u2600-\u27bf\u2300-\u23ff\u2b50\u2b55\u200d\ufe0f\ufe0e]+",
+        flags=re.UNICODE,
+    )
+    intervention_text = emoji_re.sub("", intervention_text)
+    intervention_text = re.sub(r" +", " ", intervention_text).strip()
+
+    recent_reviewers = store.get_all_reviewer_usernames(limit=10)
+
+    return {
+        "username": clean_username,
+        "github_profile": gh_profile,
+        "github_rate_limited": github_rate_limited,
+        "total_reviews_in_vouch": total_reviews_in_vouch,
+        "avg_depth_score": round(avg_depth_score, 3),
+        "rubber_stamp_rate": round(rubber_stamp_rate, 3),
+        "high_risk_rubber_stamped": high_risk_rubber_stamped,
+        "grade": grade,
+        "grade_description": grade_descriptions[grade],
+        "domain_expertise": top_domains,
+        "per_repo_stats": per_repo_stats,
+        "fatigue_state": fatigue_state,
+        "priority_queue": priority_queue,
+        "intervention": intervention_text,
+        "intervention_bot": intervention_bot,
+        "recent_reviewers": recent_reviewers,
+    }
+
+
+@app.route("/reviewer")
+def reviewer_search():
+    recent = store.get_all_reviewer_usernames(limit=10)
+    total_reviewers = len(store.get_all_reviewer_usernames(limit=None))
+    total_repos = len(store.get_repos())
+    return render_template(
+        "reviewer.html",
+        mode="search",
+        recent_reviewers=recent,
+        total_reviewers=total_reviewers,
+        total_repos=total_repos,
+    )
+
+
+
+@app.route("/reviewer/<username>")
+def reviewer_profile(username):
+    if request.args.get("refresh"):
+        _reviewer_cache.pop(username, None)
+
+    cached = _reviewer_cache.get(username)
+    if cached and (time.time() - cached["ts"]) < REVIEWER_CACHE_TTL:
+        data = dict(cached["data"])
+        data["is_self"] = (session.get("github_login") == username)
+        return render_template("reviewer.html", mode="profile", **data)
+
+    gh_token = session.get("github_token") or request.args.get("token")
+    try:
+        data = _build_reviewer_profile(username, gh_token)
+    except ValueError as e:
+        return render_template(
+            "reviewer.html",
+            mode="not_found",
+            username=username,
+            error=str(e),
+        ), 404
+    except Exception as e:
+        app.logger.error("Reviewer profile error for %s: %s", username, e)
+        return render_template(
+            "reviewer.html",
+            mode="error",
+            username=username,
+            error="Failed to load reviewer profile.",
+        ), 500
+
+    _reviewer_cache[username] = {"data": dict(data), "ts": time.time()}
+    data["is_self"] = (session.get("github_login") == username)
+    return render_template("reviewer.html", mode="profile", **data)
+
+
+@app.route("/api/reviewer/<username>")
+def api_reviewer(username):
+    cached = _reviewer_cache.get(username)
+    if cached and (time.time() - cached["ts"]) < REVIEWER_CACHE_TTL:
+        return jsonify(cached["data"])
+    gh_token = session.get("github_token") or request.args.get("token")
+    try:
+        data = _build_reviewer_profile(username, gh_token)
+        _reviewer_cache[username] = {"data": dict(data), "ts": time.time()}
+        return jsonify(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/reviewer/<username>/refresh")
+def api_reviewer_refresh(username):
+    _reviewer_cache.pop(username, None)
+    return jsonify({"status": "cache cleared", "username": username})
+
+
 if __name__ == "__main__":
+
     app.run(debug=True, port=5000)

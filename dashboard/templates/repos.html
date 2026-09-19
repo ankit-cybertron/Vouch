@@ -49,6 +49,8 @@
         placeholder="Find a repository…"
         value="{{ search or '' }}"
         autocomplete="off"
+        data-smart-repo="true"
+        data-target-template="/repo/{owner}/{repo}"
       />
     </div>
   </div>
@@ -134,7 +136,7 @@
 
       <!-- Average Residual Risk -->
       <div style="margin-left:auto;">
-        {% if repo.avg_residual_risk is not none %}
+        {% if repo.avg_residual_risk is defined and repo.avg_residual_risk is not none %}
           {% if repo.avg_residual_risk >= 0.65 %}
           <span class="gh-label gh-label-high">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
           {% elif repo.avg_residual_risk >= 0.35 %}
@@ -143,6 +145,7 @@
           <span class="gh-label gh-label-low">avg risk: {{ "%.2f" | format(repo.avg_residual_risk) }}</span>
           {% endif %}
         {% else %}
+
           <span class="gh-label gh-label-secondary">not yet scored</span>
         {% endif %}
       </div>
@@ -151,27 +154,56 @@
   {% endfor %}
 
   <!-- Empty state (shown if no repos or when cleared from display) -->
-  <div class="gh-repo-empty-state" id="repo-empty-state" style="grid-column: 1 / -1; padding: 64px 24px; text-align: center; color: var(--color-fg-muted); background: var(--color-canvas-subtle); border: 1px dashed var(--color-border-default); border-radius: 6px; display: none;">
-    <svg width="40" height="40" viewBox="0 0 16 16" fill="currentColor" style="margin-bottom: 12px; color: var(--color-fg-muted);">
-      <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path>
-    </svg>
-    <p style="font-size:16px; font-weight:600; margin-bottom:6px; color: var(--color-fg-default);">No repositories on display</p>
-    <p style="font-size:13px; max-width: 480px; margin: 0 auto 16px auto; line-height: 1.5;">
-      Repositories have been cleared from this screen view. Your database data is safe and intact.
-    </p>
-    <div style="display:flex; justify-content:center; align-items:center; gap:8px;">
-      <button type="button" class="gh-btn gh-btn-primary" onclick="document.getElementById('open-fetch-modal-btn').click()">
-        Fetch Repository
-      </button>
-      <button type="button" class="gh-btn" id="empty-discover-popular-btn">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
+  <div class="gh-repo-empty-state" id="repo-empty-state" style="grid-column: 1 / -1; padding: 48px 16px; text-align: center; background: transparent; border: none; display: none;">
+    <div class="hero-search-page" style="margin: 0 auto; max-width: 580px;">
+      <div class="hero-search-icon">
+        <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path>
         </svg>
-        Discover Popular Repos
-      </button>
-      <button type="button" class="gh-btn" id="empty-restore-initial-btn">
-        Show Vouch
-      </button>
+      </div>
+      <h2 class="hero-search-title">Find or Inspect Any Repository</h2>
+      <p class="hero-search-desc">
+        Repositories have been cleared from screen view. Search across monitored repositories or enter any public GitHub repository (owner/repo).
+      </p>
+
+      <form onsubmit="event.preventDefault(); const val=document.getElementById('empty-search-input').value.trim(); if(val){ if(val.includes('/')){ const p=val.split('/'); window.location.href='/repo/'+encodeURIComponent(p[0])+'/'+encodeURIComponent(p[1]); } else { window.location.href='/repos?q='+encodeURIComponent(val); } }">
+        <div class="search-input-group" style="position:relative; margin-bottom: 20px;">
+          <span class="search-prefix">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path>
+            </svg>
+          </span>
+          <input
+            type="text"
+            id="empty-search-input"
+            class="search-input"
+            placeholder="Type repository name (e.g. kubernetes/kubernetes, react, flask)…"
+            autocomplete="off"
+            data-smart-repo="true"
+            data-target-template="/repo/{owner}/{repo}"
+          />
+          <button type="submit" class="gh-btn gh-btn-primary gh-btn-sm" style="margin-right: 4px;">
+            Find Repo
+          </button>
+        </div>
+      </form>
+
+      <div class="hero-chips-section" style="margin-top: 20px;">
+        <div class="hero-chips-title">Quick Actions</div>
+        <div class="hero-repo-chips">
+          <button type="button" class="hero-repo-chip" onclick="document.getElementById('open-fetch-modal-btn').click()">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M7.75 2a.75.75 0 0 1 .75.75V7h4.25a.75.75 0 0 1 0 1.5H8.5v4.25a.75.75 0 0 1-1.5 0V8.5H2.75a.75.75 0 0 1 0-1.5H7V2.75A.75.75 0 0 1 7.75 2Z"></path></svg>
+            Fetch Repository
+          </button>
+          <button type="button" class="hero-repo-chip" id="empty-discover-popular-btn">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path></svg>
+            Discover Popular Repos
+          </button>
+          <button type="button" class="hero-repo-chip" id="empty-restore-initial-btn">
+            Show Vouch
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
