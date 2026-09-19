@@ -19,7 +19,7 @@ import re
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 
 from markupsafe import Markup
 import requests
@@ -1233,13 +1233,17 @@ def auth_github():
         state = secrets.token_urlsafe(16)
         session["oauth_state"] = state
         redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
-        scope = "read:user,repo"
+
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "read:user repo",
+            "state": state,
+        }
+
         github_auth_url = (
-            f"https://github.com/login/oauth/authorize"
-            f"?client_id={client_id}"
-            f"&redirect_uri={redirect_uri}"
-            f"&scope={scope}"
-            f"&state={state}"
+            "https://github.com/login/oauth/authorize?"
+            + urlencode(params)
         )
         return redirect(github_auth_url)
 
@@ -1300,6 +1304,7 @@ def auth_github_callback():
     client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
 
     try:
+        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
         token_resp = requests.post(
             "https://github.com/login/oauth/access_token",
             headers={"Accept": "application/json"},
@@ -1307,6 +1312,7 @@ def auth_github_callback():
                 "client_id": client_id,
                 "client_secret": client_secret,
                 "code": code,
+                "redirect_uri": redirect_uri,
             },
             timeout=10,
         )
