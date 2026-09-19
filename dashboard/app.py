@@ -19,7 +19,10 @@ import re
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
+import logging
 from urllib.parse import urlparse, urlencode
+
+logger = logging.getLogger(__name__)
 
 from markupsafe import Markup
 import requests
@@ -1185,11 +1188,54 @@ def _discover_popular_repos(limit: int = 6) -> list[dict]:
 
 
 
+DEFAULT_INITIAL_REPO = "ankit-cybertron/Vouch"
+
+
+def _ensure_vouch_repo_exists() -> dict:
+    """Ensure ankit-cybertron/Vouch is present in catalog and persistent store."""
+    for key in list(FETCHED_REPOS.keys()):
+        if key.lower() == DEFAULT_INITIAL_REPO.lower():
+            return FETCHED_REPOS[key]
+
+    try:
+        stored_repos = store.get_repos()
+        for key, meta in stored_repos.items():
+            if key.lower() == DEFAULT_INITIAL_REPO.lower():
+                FETCHED_REPOS[DEFAULT_INITIAL_REPO] = dict(meta)
+                return FETCHED_REPOS[DEFAULT_INITIAL_REPO]
+    except Exception:
+        pass
+
+    vouch_meta = {
+        "full_name": DEFAULT_INITIAL_REPO,
+        "owner": "ankit-cybertron",
+        "repo": "Vouch",
+        "description": "Multi-model pull request review intelligence & residual risk calibration engine.",
+        "stars": "1",
+        "forks": "0",
+        "language": "Python",
+        "language_color": "#3572A5",
+        "is_public": True,
+        "active_prs_count": 0,
+        "closed_prs_count": 3,
+        "avg_residual_risk": 0.58,
+        "last_fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    FETCHED_REPOS[DEFAULT_INITIAL_REPO] = vouch_meta
+    try:
+        store.save_repo(vouch_meta)
+    except Exception as ex:
+        logger.warning(f"Could not persist default Vouch repo: {ex}")
+    return vouch_meta
+
+
 def _init_default_repos() -> None:
     """Populate default repositories catalog and PR caches with persisted repositories."""
     stored_repos = store.get_repos()
     for name, repo_meta in stored_repos.items():
         FETCHED_REPOS[name] = dict(repo_meta)
+
+    _ensure_vouch_repo_exists()
 
     stored_prs = store.get_prs()
     for pr in stored_prs:
@@ -1301,6 +1347,8 @@ def repos_page():
         if parsed:
             return repo_view(parsed[0], parsed[1])
 
+    _ensure_vouch_repo_exists()
+
     try:
         for name, meta in store.get_repos().items():
             if name not in FETCHED_REPOS:
@@ -1313,15 +1361,20 @@ def repos_page():
     if search:
         repos_list = [
             r for r in repos_list
-            if search in r["full_name"].lower()
+            if search in r.get("full_name", "").lower()
             or search in r.get("description", "").lower()
             or search in r.get("language", "").lower()
         ]
+
+    # Ensure ankit-cybertron/Vouch is always prioritized and sorted first
+    vouch_key = DEFAULT_INITIAL_REPO.lower()
+    repos_list.sort(key=lambda r: 0 if r.get("full_name", "").lower() == vouch_key else 1)
 
     return render_template(
         "repos.html",
         repos=repos_list,
         search=search,
+        initial_repo_name=DEFAULT_INITIAL_REPO,
     )
 
 

@@ -475,6 +475,7 @@
       }
 
       setTimeout(() => {
+        try { sessionStorage.removeItem('vouch_repos_view'); } catch (e) {}
         window.location.href = '/repos';
       }, 700);
     } catch (ex) {
