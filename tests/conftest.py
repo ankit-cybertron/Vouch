@@ -42,6 +42,8 @@ os.environ["BASELINES_TABLE"] = "test-baselines"
 os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ACCESS_KEY_ID"] = "testing"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+os.environ["SECRET_KEY"] = "test-secret-key-fixture-12345"
+
 
 
 @pytest.fixture

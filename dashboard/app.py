@@ -33,6 +33,7 @@ from flask import (
     url_for,
     has_request_context,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from dashboard.store import get_store
 from dashboard.version import get_version_info, __version__
@@ -52,7 +53,10 @@ try:
 except ImportError:
     pass
 
+from dashboard.session_store import get_session_store
+
 store = get_store()
+session_store = get_session_store()
 
 
 def _compute_board_stats(prs: list[dict] | None = None) -> dict:
@@ -77,9 +81,46 @@ app = Flask(
     template_folder=os.path.join(DASHBOARD_DIR, "templates"),
     static_folder=os.path.join(DASHBOARD_DIR, "static"),
 )
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vouch-dev-secret")
+
+_secret_key = os.environ.get("SECRET_KEY", "").strip()
+if not _secret_key:
+    raise RuntimeError(
+        "SECRET_KEY environment variable is not configured. "
+        "A secure SECRET_KEY must be provided via environment or AWS Secrets Manager."
+    )
+app.config["SECRET_KEY"] = _secret_key
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
 app.jinja_env.globals.update(max=max, min=min)
+
+# Support reverse-proxy headers (Elastic Beanstalk, ngrok, AWS ALB, etc.)
+# This ensures request.host_url and url_for() produce the correct scheme/host.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+def _app_base_url() -> str:
+    """
+    Return the canonical public base URL for this Vouch instance.
+
+    Uses APP_BASE_URL env var when set (required for deployed environments).
+    Falls back to Flask's request.host_url for localhost development.
+    """
+    base = os.environ.get("APP_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return base
+    if has_request_context():
+        return request.host_url.rstrip("/")
+    return "http://localhost:5001"
+
+
+def _oauth_callback_uri() -> str:
+    """Build the exact GitHub OAuth callback URI, respecting APP_BASE_URL."""
+    return _app_base_url() + url_for("auth_github_callback")
+
+
+def _app_setup_callback_uri() -> str:
+    """Build the GitHub App post-install callback URI, respecting APP_BASE_URL."""
+    return _app_base_url() + url_for("auth_github_app_callback")
 
 
 def _resolve_github_token() -> str:
@@ -104,11 +145,18 @@ def _resolve_github_token() -> str:
     except Exception:
         pass
 
+    # Priority 1 — User's active session token resolved server-side via auth_sid
     try:
-        if has_request_context() and session.get("github_token"):
-            tok = str(session["github_token"]).strip()
-            if tok:
-                return tok
+        if has_request_context():
+            auth_sid = session.get("auth_sid")
+            if auth_sid:
+                tok = session_store.get_token(auth_sid)
+                if tok:
+                    return tok
+            if session.get("github_token"):
+                tok = str(session["github_token"]).strip()
+                if tok:
+                    return tok
     except Exception:
         pass
 
@@ -1164,10 +1212,12 @@ _init_default_repos()
 
 @app.context_processor
 def inject_global_vars():
-    token = session.get("github_token", "")
+    installation_id = session.get("installation_id")
+    has_token = bool(session.get("auth_sid")) or bool(session.get("github_token"))
+    is_authenticated = bool(installation_id) or has_token
     auth_info = {
-        "is_authenticated": bool(token),
-        "auth_type": session.get("auth_type", "demo" if not token else "token"),
+        "is_authenticated": is_authenticated,
+        "auth_type": session.get("auth_type", "demo" if not is_authenticated else ("github_app" if installation_id else "token")),
         "user_login": session.get("user_login", ""),
         "user_name": session.get("user_name", session.get("user_login", "")),
         "user_avatar": session.get("user_avatar", ""),
@@ -1176,22 +1226,28 @@ def inject_global_vars():
     from explain.groq_client import is_groq_configured
     groq_configured = is_groq_configured() or bool(session.get("groq_api_key"))
 
+    app_install_url = os.environ.get("GITHUB_APP_INSTALL_URL", "").strip()
+    client_id = os.environ.get("GITHUB_CLIENT_ID", "").strip()
+
     return {
         "repos_count": len(FETCHED_REPOS),
         "all_repos": list(FETCHED_REPOS.values()),
         "auth": auth_info,
         "app_version": get_version_info(),
         "groq_configured": groq_configured,
+        "app_install_url": app_install_url,
+        "app_configured": github_app_auth.is_configured(),
+        "has_oauth": bool(client_id),
     }
 
 
 @app.route("/")
 def landing_page():
     """Main Landing Page introducing Vouch, with GitHub App install & Demo mode entry points."""
-    # If user is already authenticated (GitHub App or OAuth), route directly to repos
+    # If user is already authenticated (GitHub App or OAuth/PAT), route directly to repos
     already_authed = (
         session.get("installation_id") and github_app_auth.is_configured()
-    ) or (session.get("github_token") and not request.args.get("reauth"))
+    ) or ((session.get("auth_sid") or session.get("github_token")) and not request.args.get("reauth"))
     if already_authed and not request.args.get("reauth"):
         return redirect(url_for("repos_page"))
 
@@ -1219,6 +1275,10 @@ def landing_page():
     # Legacy OAuth availability (fallback when GitHub App is not configured)
     has_oauth = bool(client_id) or bool(_resolve_github_token())
 
+    # Pre-compute the exact callback URLs for display in setup instructions
+    computed_oauth_callback_uri = _oauth_callback_uri()
+    computed_app_callback_uri = _app_setup_callback_uri()
+
     return render_template(
         "landing.html",
         sample_repos=sample_repos,
@@ -1227,6 +1287,8 @@ def landing_page():
         error=error,
         app_configured=app_configured,
         app_install_url=app_install_url,
+        computed_oauth_callback_uri=computed_oauth_callback_uri,
+        computed_app_callback_uri=computed_app_callback_uri,
     )
 
 
@@ -1345,7 +1407,8 @@ def auth_github():
     if client_id and client_secret:
         state = secrets.token_urlsafe(16)
         session["oauth_state"] = state
-        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+        # Use APP_BASE_URL when deployed (Elastic Beanstalk / reverse proxy)
+        redirect_uri = _oauth_callback_uri()
 
         params = {
             "client_id": client_id,
@@ -1384,8 +1447,13 @@ def auth_github():
                     timeout=10,
                 )
                 rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
-
-                session["github_token"] = existing_token
+                auth_sid = session_store.create_session(
+                    token=existing_token,
+                    user_login=user_data.get("login", "github_user"),
+                    auth_type="oauth",
+                )
+                session["auth_sid"] = auth_sid
+                session.pop("github_token", None)
                 session["user_login"] = user_data.get("login", "github_user")
                 session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
                 session["user_avatar"] = user_data.get("avatar_url", "")
@@ -1417,7 +1485,8 @@ def auth_github_callback():
     client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
 
     try:
-        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+        # Use APP_BASE_URL when deployed so redirect_uri matches what GitHub expects
+        redirect_uri = _oauth_callback_uri()
         token_resp = requests.post(
             "https://github.com/login/oauth/access_token",
             headers={"Accept": "application/json"},
@@ -1458,7 +1527,14 @@ def auth_github_callback():
         )
         rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
 
-        session["github_token"] = access_token
+        # Store OAuth token securely in server-side session store
+        auth_sid = session_store.create_session(
+            token=access_token,
+            user_login=user_data.get("login", "github_user"),
+            auth_type="oauth",
+        )
+        session["auth_sid"] = auth_sid
+        session.pop("github_token", None)
         session["user_login"] = user_data.get("login", "github_user")
         session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
         session["user_avatar"] = user_data.get("avatar_url", "")
@@ -1476,6 +1552,9 @@ def auth_github_callback():
 @app.route("/auth/logout")
 def auth_logout():
     """Clear user session and return to landing page."""
+    auth_sid = session.pop("auth_sid", None)
+    if auth_sid:
+        session_store.delete_session(auth_sid)
     session.pop("github_token", None)
     session.pop("installation_id", None)
     session.pop("setup_action", None)
@@ -1487,9 +1566,85 @@ def auth_logout():
     return redirect(url_for("landing_page"))
 
 
+# ── Option 4: In-App UI Personal Access Token API (Fallback) ─────
+@app.route("/api/auth/token", methods=["POST"])
+def api_save_token():
+    """Validate and store Personal Access Token (classic ghp_ or fine-grained github_pat_)."""
+    payload = request.get_json(silent=True) or {}
+    raw_token = payload.get("token", "").strip()
+    if not raw_token:
+        return jsonify({"success": False, "error": "Token cannot be empty"}), 400
+
+    try:
+        # Validate token against GitHub API
+        user_resp = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {raw_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=8,
+        )
+        if user_resp.status_code != 200:
+            return jsonify({
+                "success": False,
+                "error": "Invalid GitHub token. GitHub rejected the token (HTTP 401). Please verify permissions.",
+            }), 400
+
+        user_data = user_resp.json()
+        rate_resp = requests.get(
+            "https://api.github.com/rate_limit",
+            headers={
+                "Authorization": f"Bearer {raw_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=8,
+        )
+        rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
+
+        # Store PAT securely in server-side session store
+        auth_sid = session_store.create_session(
+            token=raw_token,
+            user_login=user_data.get("login", "github_user"),
+            auth_type="token",
+        )
+
+        # Reset any prior GitHub App installation from session so PAT is used
+        session.pop("installation_id", None)
+        session.pop("setup_action", None)
+        session.pop("github_token", None)  # Ensure raw token is never stored in client cookie
+        session["auth_sid"] = auth_sid
+        session["user_login"] = user_data.get("login", "github_user")
+        session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
+        session["user_avatar"] = user_data.get("avatar_url", "")
+        session["auth_type"] = "token"
+        session["rate_limit"] = {
+            "limit": rate_data.get("limit", 5000),
+            "remaining": rate_data.get("remaining", 5000),
+        }
+
+        return jsonify({
+            "success": True,
+            "message": f"Connected as @{session['user_login']}",
+            "user": {
+                "login": session["user_login"],
+                "name": session["user_name"],
+                "avatar_url": session["user_avatar"],
+            },
+            "rate_limit": session["rate_limit"],
+        })
+    except requests.exceptions.RequestException:
+        return jsonify({"success": False, "error": "Connection error: Unable to reach GitHub API."}), 502
+    except Exception:
+        return jsonify({"success": False, "error": "Unexpected error validating token."}), 500
+
+
 @app.route("/api/auth/clear-token", methods=["POST"])
 def api_clear_token():
     """Reset session to default demo mode."""
+    auth_sid = session.pop("auth_sid", None)
+    if auth_sid:
+        session_store.delete_session(auth_sid)
     session.pop("github_token", None)
     session.pop("installation_id", None)
     session.pop("setup_action", None)
@@ -1505,9 +1660,9 @@ def api_clear_token():
 def api_auth_status():
     """Return current session auth state."""
     installation_id = session.get("installation_id")
-    token = session.get("github_token")
-    authenticated = bool(installation_id) or bool(token)
-    auth_type = session.get("auth_type", "demo" if not authenticated else "token")
+    has_token = bool(session.get("auth_sid")) or bool(session.get("github_token"))
+    authenticated = bool(installation_id) or has_token
+    auth_type = session.get("auth_type", "demo" if not authenticated else ("github_app" if installation_id else "token"))
     return jsonify({
         "authenticated": authenticated,
         "auth_type": auth_type,
