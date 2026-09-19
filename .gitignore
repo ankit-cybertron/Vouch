@@ -36,6 +36,8 @@ data/
 .env
 .env.*
 *.local
+*.pem
+
 
 # IDE
 .vscode/

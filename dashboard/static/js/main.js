@@ -727,10 +727,22 @@ window.handleTokenSubmit = async function (e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: token }),
     });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
       if (err) {
-        err.textContent = data.error || 'Failed to connect token. Please check validity.';
+        err.textContent = res.status ? `Server error (HTTP ${res.status}). Please try again.` : 'Unexpected response from server.';
+        err.style.display = 'block';
+      }
+      btn.disabled = false;
+      btn.textContent = origText;
+      return;
+    }
+
+    if (!res.ok || !data || !data.success) {
+      if (err) {
+        err.textContent = (data && data.error) ? data.error : 'Failed to connect token. Please check validity.';
         err.style.display = 'block';
       }
       btn.disabled = false;
@@ -748,7 +760,7 @@ window.handleTokenSubmit = async function (e) {
     }, 800);
   } catch (ex) {
     if (err) {
-      err.textContent = 'Network error: ' + ex.message;
+      err.textContent = 'Connection error: Unable to reach server. Please check your network connection.';
       err.style.display = 'block';
     }
     btn.disabled = false;

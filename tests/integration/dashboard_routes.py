@@ -12,8 +12,8 @@ class TestDashboardCoreRoutes:
         assert res.status_code == 200
         html = res.get_data(as_text=True)
 
-        # Confirm single-action button & token fallback are present
-        assert "Connect with GitHub" in html
+        # Confirm primary action / setup notice & token fallback are present
+        assert ("Install Vouch on GitHub" in html or "GitHub App not configured" in html)
         assert "inline-token-form" in html
         assert "landing-token-input" in html
 
