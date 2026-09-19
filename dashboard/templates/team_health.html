@@ -38,6 +38,9 @@
       {{ health.rubber_stamp_rate }}%
     </div>
     <div class="gh-kpi-label">Rubber-Stamp Index</div>
+    <div style="height:4px; background:var(--color-canvas-default); border-radius:2px; margin-top:6px; overflow:hidden;">
+      <div data-fill-width="{{ health.rubber_stamp_rate }}%" style="height:100%; width:{{ health.rubber_stamp_rate }}%; background:{% if health.rubber_stamp_rate > 35 %}var(--color-danger-fg){% elif health.rubber_stamp_rate > 20 %}var(--color-attention-fg){% else %}var(--color-success-fg){% endif %};"></div>
+    </div>
     <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">Approvals with minimal scrutiny</div>
   </div>
 
@@ -46,6 +49,9 @@
       {{ health.fatigue_index }}%
     </div>
     <div class="gh-kpi-label">Reviewer Fatigue Index</div>
+    <div style="height:4px; background:var(--color-canvas-default); border-radius:2px; margin-top:6px; overflow:hidden;">
+      <div data-fill-width="{{ health.fatigue_index }}%" style="height:100%; width:{{ health.fatigue_index }}%; background:{% if health.fatigue_index > 40 %}var(--color-danger-fg){% elif health.fatigue_index > 20 %}var(--color-attention-fg){% else %}var(--color-success-fg){% endif %};"></div>
+    </div>
     <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">Reviewers under high/moderate load</div>
   </div>
 

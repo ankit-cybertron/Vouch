@@ -99,7 +99,7 @@
       <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
         <!-- Language -->
         <span class="gh-repo-meta-item">
-          <span class="lang-dot" data-lang-color="{{ repo.language_color or '#3572A5' }}"></span>
+          <span class="lang-dot lang-{{ (repo.language or 'python') | lower | replace('c++', 'cpp') }}"></span>
           {{ repo.language or 'Code' }}
         </span>
 
