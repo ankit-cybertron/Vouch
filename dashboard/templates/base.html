@@ -60,9 +60,9 @@
           {% endif %}
           <span style="font-size:13px; font-weight:600; color:var(--color-fg-default);">@{{ auth.user_login }}</span>
           {% if auth.rate_limit and auth.rate_limit.remaining is defined %}
-          <span class="gh-label gh-label-confidence" title="Remaining GitHub API quota">{{ auth.rate_limit.remaining }} / {{ auth.rate_limit.limit }} reqs</span>
+          <span class="gh-label gh-label-confidence" id="nav-quota-pill" title="Remaining GitHub API quota">{{ auth.rate_limit.remaining }} / {{ auth.rate_limit.limit }} reqs</span>
           {% else %}
-          <span class="gh-label gh-label-confidence">{{ auth.auth_type | upper }}</span>
+          <span class="gh-label gh-label-confidence" id="nav-quota-pill">{{ auth.auth_type | upper }}</span>
           {% endif %}
           <a href="/auth/logout" class="gh-btn gh-btn-sm" style="color:var(--color-danger-fg); padding:2px 8px;" title="Disconnect token / sign out">Sign out</a>
         </div>

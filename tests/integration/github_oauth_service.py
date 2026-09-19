@@ -25,17 +25,19 @@ class TestGitHubAppInstallRoute:
         """GET /auth/github/app/install without GITHUB_APP_INSTALL_URL returns error redirect."""
         with patch.dict("os.environ", {"GITHUB_APP_INSTALL_URL": ""}):
             res = client.get("/auth/github/app/install")
-            loc = res.headers["Location"]
-            assert loc.startswith("https://github.com/login/oauth/authorize")
-            parsed = urlparse(loc)
-            params = parse_qs(parsed.query)
-            assert params["client_id"] == ["mock_client_id_123"]
-            assert params["scope"] in (["read:user repo"], ["read:user,repo"])
-            assert "redirect_uri" in params
-            assert "state" in params
-            # Confirm state was saved in session
-            with client.session_transaction() as sess:
-                assert "oauth_state" in sess
+
+        assert res.status_code == 302
+
+        location = res.headers["Location"]
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+
+        assert parsed.path == "/"
+        assert "error" in params
+        assert params["error"] == [
+            "GITHUB_APP_INSTALL_URL is not configured. "
+            "Set it to your GitHub App's installation URL."
+        ]
 
     @patch("dashboard.app._resolve_github_token")
     @patch("dashboard.app.requests.get")
@@ -55,11 +57,19 @@ class TestGitHubAppInstallRoute:
 
         mock_get.side_effect = mock_side_effect
 
-        with patch.dict("os.environ", {"GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_SECRET": ""}):
+        with patch.dict(
+            "os.environ",
+            {"GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_SECRET": ""},
+        ):
             res = client.get("/auth/github")
-            assert res.status_code == 302
-            assert "error=" in res.headers["Location"]
-            assert "GITHUB_APP_INSTALL_URL" in res.headers["Location"]
+
+        assert res.status_code == 302
+        assert res.headers["Location"] == "/repos"
+
+        with client.session_transaction() as sess:
+            assert sess["github_token"] == "gho_host_token_999"
+            assert sess["auth_type"] == "oauth"
+            assert sess["user_login"] == mock_github_user["login"]
 
 
 class TestGitHubAppCallbackRoute:

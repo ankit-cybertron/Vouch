@@ -38,6 +38,20 @@ from dashboard.store import get_store
 from dashboard.version import get_version_info, __version__
 from dashboard.github_app import github_app_auth
 
+try:
+    from dotenv import load_dotenv
+    _app_file_dir = os.path.dirname(os.path.abspath(__file__))
+    for _p in [
+        os.path.join(os.path.dirname(_app_file_dir), ".env"),
+        os.path.join(_app_file_dir, ".env"),
+        os.path.join(os.getcwd(), ".env"),
+    ]:
+        if os.path.exists(_p):
+            load_dotenv(_p)
+            break
+except ImportError:
+    pass
+
 store = get_store()
 
 
