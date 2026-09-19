@@ -3,6 +3,7 @@ Integration tests for GitHub OAuth routes (/auth/github, /auth/github/callback, 
 """
 
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse, parse_qs
 import pytest
 
 
@@ -17,9 +18,12 @@ class TestOAuthFlow:
             assert res.status_code == 302
             loc = res.headers["Location"]
             assert loc.startswith("https://github.com/login/oauth/authorize")
-            assert "client_id=mock_client_id_123" in loc
-            assert "scope=read:user,repo" in loc
-
+            parsed = urlparse(loc)
+            params = parse_qs(parsed.query)
+            assert params["client_id"] == ["mock_client_id_123"]
+            assert params["scope"] in (["read:user repo"], ["read:user,repo"])
+            assert "redirect_uri" in params
+            assert "state" in params
             # Confirm state was saved in session
             with client.session_transaction() as sess:
                 assert "oauth_state" in sess
