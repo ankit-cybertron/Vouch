@@ -766,3 +766,45 @@ window.handleTokenClear = async function () {
   }
 };
 
+// ── Real-Time GitHub Quota Synchronization (Clean, no gimmick icons/animations)
+function updateQuotaPill(rateLimit) {
+  if (!rateLimit || rateLimit.remaining === undefined) return;
+  const pill = document.getElementById('nav-quota-pill');
+  if (pill) {
+    const lim = rateLimit.limit !== undefined ? rateLimit.limit : 5000;
+    pill.textContent = `${rateLimit.remaining} / ${lim} reqs`;
+  }
+}
+
+// Intercept all API responses so any request updating rate_limit syncs the UI immediately
+(function () {
+  const originalFetch = window.fetch;
+  window.fetch = async function (...args) {
+    const response = await originalFetch.apply(this, args);
+    try {
+      const clone = response.clone();
+      clone.json().then(function (data) {
+        if (data && data.rate_limit) {
+          updateQuotaPill(data.rate_limit);
+        }
+      }).catch(function () { });
+    } catch (e) { }
+    return response;
+  };
+})();
+
+// Periodic background sync (every 30 seconds when quota pill is present)
+setInterval(async function () {
+  const pill = document.getElementById('nav-quota-pill');
+  if (!pill) return;
+  try {
+    const res = await fetch('/api/auth/status?refresh=1');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.rate_limit) {
+        updateQuotaPill(data.rate_limit);
+      }
+    }
+  } catch (e) { }
+}, 30000);
+

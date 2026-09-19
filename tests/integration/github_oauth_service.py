@@ -1,5 +1,11 @@
 """
-Integration tests for GitHub OAuth routes (/auth/github, /auth/github/callback, /auth/logout).
+Integration tests for GitHub App authentication routes.
+
+Covers:
+  - GET /auth/github/app/install  → redirect to GITHUB_APP_INSTALL_URL
+  - GET /auth/github/app/callback → stores installation_id in session
+  - GET /auth/logout              → clears installation_id
+  - GET /api/auth/status          → reflects GitHub App session state
 """
 
 from unittest.mock import MagicMock, patch
@@ -7,26 +13,31 @@ from urllib.parse import urlparse, parse_qs
 import pytest
 
 
-class TestOAuthFlow:
-    def test_auth_github_with_client_id_redirects_to_github_authorize(self, client):
-        """When GITHUB_CLIENT_ID and SECRET are set, initiates OAuth redirect to GitHub."""
-        with patch.dict("os.environ", {
-            "GITHUB_CLIENT_ID": "mock_client_id_123",
-            "GITHUB_CLIENT_SECRET": "mock_client_secret_456",
-        }):
-            res = client.get("/auth/github")
+class TestGitHubAppInstallRoute:
+    def test_app_install_redirects_to_configured_url(self, client):
+        """GET /auth/github/app/install redirects to GITHUB_APP_INSTALL_URL when set."""
+        with patch.dict("os.environ", {"GITHUB_APP_INSTALL_URL": "https://github.com/apps/vouch/installations/new"}):
+            res = client.get("/auth/github/app/install")
             assert res.status_code == 302
-            loc = res.headers["Location"]
-            assert loc.startswith("https://github.com/login/oauth/authorize")
-            parsed = urlparse(loc)
-            params = parse_qs(parsed.query)
-            assert params["client_id"] == ["mock_client_id_123"]
-            assert params["scope"] in (["read:user repo"], ["read:user,repo"])
-            assert "redirect_uri" in params
-            assert "state" in params
-            # Confirm state was saved in session
-            with client.session_transaction() as sess:
-                assert "oauth_state" in sess
+            assert res.headers["Location"] == "https://github.com/apps/vouch/installations/new"
+
+    def test_app_install_no_url_configured_redirects_with_error(self, client):
+        """GET /auth/github/app/install without GITHUB_APP_INSTALL_URL returns error redirect."""
+        with patch.dict("os.environ", {"GITHUB_APP_INSTALL_URL": ""}):
+            res = client.get("/auth/github/app/install")
+
+        assert res.status_code == 302
+
+        location = res.headers["Location"]
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+
+        assert parsed.path == "/"
+        assert "error" in params
+        assert params["error"] == [
+            "GITHUB_APP_INSTALL_URL is not configured. "
+            "Set it to your GitHub App's installation URL."
+        ]
 
     @patch("dashboard.app._resolve_github_token")
     @patch("dashboard.app.requests.get")
@@ -46,77 +57,148 @@ class TestOAuthFlow:
 
         mock_get.side_effect = mock_side_effect
 
-        with patch.dict("os.environ", {"GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_SECRET": ""}):
+        with patch.dict(
+            "os.environ",
+            {"GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_SECRET": ""},
+        ):
             res = client.get("/auth/github")
-            assert res.status_code == 302
-            assert res.headers["Location"] == "/repos"
 
-            # Check that session was populated with user details
-            with client.session_transaction() as sess:
-                assert sess["github_token"] == "gho_host_token_999"
-                assert sess["user_login"] == "test-dev"
-                assert sess["auth_type"] == "oauth"
-
-    def test_auth_github_callback_state_mismatch(self, client):
-        """Callback with state mismatch or missing state rejects with error redirect."""
-        with client.session_transaction() as sess:
-            sess["oauth_state"] = "expected_state_abc"
-
-        res = client.get("/auth/github/callback?code=some_code&state=wrong_state")
         assert res.status_code == 302
-        assert "error=" in res.headers["Location"]
+        assert res.headers["Location"] == "/repos"
 
-    @patch("dashboard.app.requests.post")
-    @patch("dashboard.app.requests.get")
-    def test_auth_github_callback_success(self, mock_get, mock_post, client, mock_github_user, mock_github_rate_limit):
-        """Valid OAuth callback exchanges code for token, saves session, and redirects to /repos."""
         with client.session_transaction() as sess:
-            sess["oauth_state"] = "valid_state_123"
+            assert sess["github_token"] == "gho_host_token_999"
+            assert sess["auth_type"] == "oauth"
+            assert sess["user_login"] == mock_github_user["login"]
 
-        mock_token_resp = MagicMock()
-        mock_token_resp.status_code = 200
-        mock_token_resp.json.return_value = {
-            "access_token": "gho_newly_minted_oauth_token",
-            "token_type": "bearer",
-            "scope": "read:user,repo",
+
+class TestGitHubAppCallbackRoute:
+    def test_callback_missing_installation_id_redirects_with_error(self, client):
+        """Callback without installation_id redirects to landing with error."""
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = True
+            res = client.get("/auth/github/app/callback?setup_action=install")
+            assert res.status_code == 302
+            assert "error=" in res.headers["Location"]
+
+    def test_callback_app_not_configured_redirects_with_error(self, client):
+        """Callback when GitHub App is not configured redirects with error."""
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = False
+            res = client.get("/auth/github/app/callback?installation_id=42&setup_action=install")
+            assert res.status_code == 302
+            assert "error=" in res.headers["Location"]
+
+    def test_callback_state_mismatch_redirects_with_error(self, client):
+        """Callback with wrong state rejects with error redirect."""
+        with client.session_transaction() as sess:
+            sess["app_install_state"] = "expected_state_abc"
+
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = True
+            res = client.get(
+                "/auth/github/app/callback?installation_id=42&setup_action=install&state=wrong_state"
+            )
+            assert res.status_code == 302
+            assert "error=" in res.headers["Location"]
+
+    def test_callback_success_stores_installation_id(self, client):
+        """Valid callback stores installation_id in session and redirects to /repos."""
+        mock_token = "ghs_installation_access_token_xyz"
+        mock_account = {
+            "login": "vouch-org",
+            "name": "Vouch Organisation",
+            "avatar_url": "https://avatars.githubusercontent.com/u/12345?v=4",
         }
-        mock_post.return_value = mock_token_resp
 
-        def mock_get_side_effect(url, **kwargs):
-            resp = MagicMock()
-            if "rate_limit" in url:
-                resp.status_code = 200
-                resp.json.return_value = mock_github_rate_limit
-            else:
-                resp.status_code = 200
-                resp.json.return_value = mock_github_user
-            return resp
+        with patch("dashboard.app.github_app_auth") as mock_auth, \
+             patch("dashboard.app.requests.get") as mock_get:
+            mock_auth.is_configured.return_value = True
+            mock_auth.get_installation_token.return_value = mock_token
+            mock_auth._build_jwt.return_value = "mock.jwt.token"
 
-        mock_get.side_effect = mock_get_side_effect
+            mock_inst_resp = MagicMock()
+            mock_inst_resp.status_code = 200
+            mock_inst_resp.json.return_value = {"account": mock_account}
+            mock_get.return_value = mock_inst_resp
 
-        with patch.dict("os.environ", {
-            "GITHUB_CLIENT_ID": "client_id_123",
-            "GITHUB_CLIENT_SECRET": "client_secret_456",
-        }):
-            res = client.get("/auth/github/callback?code=auth_code_xyz&state=valid_state_123")
+            res = client.get(
+                "/auth/github/app/callback?installation_id=99&setup_action=install"
+            )
             assert res.status_code == 302
             assert res.headers["Location"] == "/repos"
 
             with client.session_transaction() as sess:
-                assert sess["github_token"] == "gho_newly_minted_oauth_token"
-                assert sess["user_login"] == "test-dev"
-                assert sess["auth_type"] == "oauth"
+                assert sess["installation_id"] == 99
+                assert sess["auth_type"] == "github_app"
+                assert sess["user_login"] == "vouch-org"
 
-    def test_auth_logout_clears_session(self, client):
-        """GET /auth/logout clears user session and redirects to /."""
+    def test_callback_token_exchange_failure_redirects_with_error(self, client):
+        """If token exchange raises, callback redirects to landing with error."""
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = True
+            mock_auth.get_installation_token.side_effect = RuntimeError("GitHub returned HTTP 404")
+
+            res = client.get(
+                "/auth/github/app/callback?installation_id=42&setup_action=install"
+            )
+            assert res.status_code == 302
+            assert "error=" in res.headers["Location"]
+
+
+class TestAuthStatusWithGitHubApp:
+    def test_status_unauthenticated(self, client):
+        """Unauthenticated client receives authenticated: False."""
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = False
+            res = client.get("/api/auth/status")
+            assert res.status_code == 200
+            data = res.get_json()
+            assert data["authenticated"] is False
+            assert data["auth_type"] == "demo"
+
+    def test_status_github_app_session(self, client):
+        """Session with installation_id returns authenticated: True with github_app auth_type."""
         with client.session_transaction() as sess:
-            sess["github_token"] = "gho_active_session"
-            sess["user_login"] = "octocat"
+            sess["installation_id"] = 42
+            sess["auth_type"] = "github_app"
+            sess["user_login"] = "vouch-org"
+            sess["user_name"] = "Vouch Organisation"
+            sess["user_avatar"] = "https://avatars.githubusercontent.com/u/12345?v=4"
+            sess["rate_limit"] = {"limit": 5000, "remaining": 5000}
+
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = True
+            res = client.get("/api/auth/status")
+            assert res.status_code == 200
+            data = res.get_json()
+            assert data["authenticated"] is True
+            assert data["auth_type"] == "github_app"
+            assert data["installation_id"] == 42
+            assert data["user_login"] == "vouch-org"
+
+    def test_status_exposes_app_configured_flag(self, client):
+        """api/auth/status always exposes app_configured regardless of session."""
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = True
+            res = client.get("/api/auth/status")
+            data = res.get_json()
+            assert data["app_configured"] is True
+
+
+class TestAuthLogoutClearsAppSession:
+    def test_logout_clears_installation_id(self, client):
+        """GET /auth/logout clears installation_id and other GitHub App session keys."""
+        with client.session_transaction() as sess:
+            sess["installation_id"] = 42
+            sess["auth_type"] = "github_app"
+            sess["user_login"] = "vouch-org"
 
         res = client.get("/auth/logout")
         assert res.status_code == 302
         assert res.headers["Location"] == "/"
 
         with client.session_transaction() as sess:
-            assert "github_token" not in sess
+            assert "installation_id" not in sess
+            assert "auth_type" not in sess
             assert "user_login" not in sess

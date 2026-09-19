@@ -1,24 +1,31 @@
 """
-Integration tests for dashboard auth APIs (/api/auth/*).
+Integration tests for dashboard auth APIs (/api/auth/*) with GitHub App session model.
+
+The old PAT-paste endpoint (POST /api/auth/token) has been removed.
+These tests validate the remaining auth API surface:
+  - GET  /api/auth/status       → reflects GitHub App OR OAuth session
+  - POST /api/auth/clear-token  → clears all session state including installation_id
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import pytest
 
 
 class TestAuthApiEndpoints:
     def test_auth_status_unauthenticated(self, client):
         """Unauthenticated client receives authenticated: False."""
-        res = client.get("/api/auth/status")
-        assert res.status_code == 200
-        data = res.get_json()
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = False
+            res = client.get("/api/auth/status")
+            assert res.status_code == 200
+            data = res.get_json()
 
-        assert data["authenticated"] is False
-        assert data["auth_type"] == "demo"
-        assert data["user_login"] == ""
+            assert data["authenticated"] is False
+            assert data["auth_type"] == "demo"
+            assert data["user_login"] == ""
 
-    def test_auth_status_authenticated(self, client):
-        """Authenticated session returns user details and quota."""
+    def test_auth_status_authenticated_with_oauth(self, client):
+        """OAuth-authenticated session returns user details and quota."""
         with client.session_transaction() as sess:
             sess["github_token"] = "gho_test_123"
             sess["user_login"] = "octocat"
@@ -27,70 +34,46 @@ class TestAuthApiEndpoints:
             sess["auth_type"] = "oauth"
             sess["rate_limit"] = {"limit": 5000, "remaining": 4900}
 
-        res = client.get("/api/auth/status")
-        assert res.status_code == 200
-        data = res.get_json()
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = False
+            res = client.get("/api/auth/status")
+            assert res.status_code == 200
+            data = res.get_json()
 
-        assert data["authenticated"] is True
-        assert data["user_login"] == "octocat"
-        assert data["auth_type"] == "oauth"
-        assert data["rate_limit"]["remaining"] == 4900
+            assert data["authenticated"] is True
+            assert data["user_login"] == "octocat"
+            assert data["auth_type"] == "oauth"
+            assert data["rate_limit"]["remaining"] == 4900
 
-    def test_post_token_empty_payload(self, client):
-        """POST /api/auth/token without token returns 400 error."""
-        res = client.post("/api/auth/token", json={})
-        assert res.status_code == 400
-        data = res.get_json()
-        assert data["success"] is False
-        assert "empty" in data["error"].lower()
-
-    @patch("dashboard.app.requests.get")
-    def test_post_token_invalid_github_response(self, mock_get, client):
-        """POST /api/auth/token with rejected token returns 400 error."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 401
-        mock_get.return_value = mock_resp
-
-        res = client.post("/api/auth/token", json={"token": "ghp_invalid_token"})
-        assert res.status_code == 400
-        data = res.get_json()
-        assert data["success"] is False
-        assert "Invalid GitHub token" in data["error"]
-
-    @patch("dashboard.app.requests.get")
-    def test_post_token_valid_sets_session(self, mock_get, client, mock_github_user, mock_github_rate_limit):
-        """POST /api/auth/token with valid token sets encrypted session and returns user info."""
-        def mock_side_effect(url, **kwargs):
-            resp = MagicMock()
-            if "rate_limit" in url:
-                resp.status_code = 200
-                resp.json.return_value = mock_github_rate_limit
-            else:
-                resp.status_code = 200
-                resp.json.return_value = mock_github_user
-            return resp
-
-        mock_get.side_effect = mock_side_effect
-
-        res = client.post("/api/auth/token", json={"token": "ghp_valid_test_token_12345"})
-        assert res.status_code == 200
-        data = res.get_json()
-
-        assert data["success"] is True
-        assert data["user"]["login"] == "test-dev"
-        assert data["rate_limit"]["remaining"] == 4950
-
-        # Verify session state was persisted
+    def test_auth_status_authenticated_with_github_app(self, client):
+        """GitHub App installation session returns authenticated: True with app auth_type."""
         with client.session_transaction() as sess:
-            assert sess["github_token"] == "ghp_valid_test_token_12345"
-            assert sess["user_login"] == "test-dev"
-            assert sess["auth_type"] == "token"
+            sess["installation_id"] = 77
+            sess["auth_type"] = "github_app"
+            sess["user_login"] = "my-org"
+            sess["user_name"] = "My Organisation"
+            sess["user_avatar"] = "https://avatars.githubusercontent.com/u/77?v=4"
+            sess["rate_limit"] = {"limit": 5000, "remaining": 5000}
+
+        with patch("dashboard.app.github_app_auth") as mock_auth:
+            mock_auth.is_configured.return_value = True
+            res = client.get("/api/auth/status")
+            assert res.status_code == 200
+            data = res.get_json()
+
+            assert data["authenticated"] is True
+            assert data["auth_type"] == "github_app"
+            assert data["installation_id"] == 77
+            assert data["app_configured"] is True
+            assert data["user_login"] == "my-org"
 
     def test_post_clear_token_resets_session(self, client):
-        """POST /api/auth/clear-token clears session and resets to demo mode."""
+        """POST /api/auth/clear-token clears session including installation_id and resets to demo mode."""
         with client.session_transaction() as sess:
+            sess["installation_id"] = 42
             sess["github_token"] = "gho_test_123"
             sess["user_login"] = "octocat"
+            sess["auth_type"] = "github_app"
 
         res = client.post("/api/auth/clear-token")
         assert res.status_code == 200
@@ -99,4 +82,12 @@ class TestAuthApiEndpoints:
 
         with client.session_transaction() as sess:
             assert "github_token" not in sess
+            assert "installation_id" not in sess
             assert "user_login" not in sess
+
+    def test_pat_paste_endpoint_removed(self, client):
+        """POST /api/auth/token (legacy PAT input) no longer exists — returns 404 or 405."""
+        res = client.post("/api/auth/token", json={"token": "ghp_some_pat"})
+        assert res.status_code in (404, 405), (
+            f"PAT endpoint should be removed but returned {res.status_code}"
+        )
