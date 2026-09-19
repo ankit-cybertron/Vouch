@@ -1,152 +1,597 @@
 {% extends "base.html" %}
-{% block title %}Connect GitHub · Vouch Review Intelligence{% endblock %}
-{% block meta_description %}Connect your GitHub account to analyze pull requests with Vouch review intelligence.{% endblock %}
+{% block title %}Code Review Intelligence for GitHub · Vouch{% endblock %}
+{% block meta_description %}Vouch analyzes pull requests, review activity, and code changes to surface residual risk before it reaches production.{% endblock %}
 {% block body_class %}landing-auth-body{% endblock %}
 {% block navbar %}{% endblock %}
 {% block footer %}{% endblock %}
 
 {% block content %}
-<div class="gh-auth-container">
-  <div class="gh-auth-card">
-    <!-- Icon & Brand Header -->
-    <div class="gh-auth-header">
-      <div class="gh-auth-icon-wrap">
-        <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
+<!-- ── Minimal Dark Landing Header ───────────────────────────────── -->
+<header style="background:rgba(13, 17, 23, 0.9); backdrop-filter:blur(12px); border-bottom:1px solid var(--color-border-default); padding:14px 0; position:sticky; top:0; z-index:100; width:100%;">
+  <div class="vouch-header-inner" style="display:flex; align-items:center; justify-content:space-between;">
+    <div style="display:flex; align-items:center; gap:24px;">
+      <a href="/" style="display:flex; align-items:center; gap:8px; color:var(--color-fg-default); font-weight:700; font-size:16px; text-decoration:none;">
+        <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8.533.133 13.783 1.813A1.75 1.75 0 0 1 15 3.48v4.387a9.87 9.87 0 0 1-5.093 8.653.75.75 0 0 1-.72 0A9.87 9.87 0 0 1 1 7.868V3.48a1.75 1.75 0 0 1 1.217-1.667L7.467.133a1.748 1.748 0 0 1 1.066 0ZM8 1.55l-5.32 1.702a.25.25 0 0 0-.18.228v4.388c0 3.197 1.884 6.136 4.75 7.604a17.433 17.433 0 0 0 4.75-7.604V3.48a.25.25 0 0 0-.18-.228L8 1.55Zm2.78 4.67a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.75.75 0 1 1 1.06-1.06L6.5 8.94l2.97-2.97a.75.75 0 0 1 1.06 0Z"></path>
         </svg>
+        <span>Vouch</span>
+      </a>
+      <div style="display:flex; align-items:center; gap:20px; font-size:13.5px; font-weight:500;">
+        <a href="#problem" style="color:var(--color-fg-muted); text-decoration:none;">Product</a>
+        <a href="#how-it-works" style="color:var(--color-fg-muted); text-decoration:none;">How it works</a>
+        <a href="#capabilities" style="color:var(--color-fg-muted); text-decoration:none;">Capabilities</a>
+        <a href="https://github.com/ankit-cybertron/Vouch" target="_blank" rel="noopener noreferrer" style="color:var(--color-fg-muted); text-decoration:none;">GitHub ↗</a>
       </div>
-      <h1 class="gh-auth-title">Vouch Review Intelligence</h1>
-      <p class="gh-auth-subtitle">
-        Connect your GitHub account to analyze pull requests, calculate residual risk, and detect rubber-stamp reviews.
+    </div>
+    <div>
+      {% if app_configured and app_install_url %}
+      <a href="{{ app_install_url }}" class="vouch-btn-primary" style="padding:6px 14px; font-size:13px;">Connect with GitHub</a>
+      {% else %}
+      <a href="#auth-section" class="vouch-btn-primary" style="padding:6px 14px; font-size:13px;">Connect with GitHub</a>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+<div class="vouch-landing-wrapper">
+
+  <!-- ── 1. HERO SECTION (2-Column Split Layout with Top-Fold Connect Box) ─ -->
+  <section class="vouch-hero-section">
+    <div class="vouch-hero-grid">
+
+      <!-- LEFT COLUMN: Headline & Value Proposition -->
+      <div class="vouch-hero-content">
+
+        <h1 class="vouch-hero-headline">
+          Know what remains after code review.
+        </h1>
+
+        <p class="vouch-hero-subheadline">
+          Vouch analyzes pull requests, review activity, and code changes to surface residual risk before it reaches production.
+        </p>
+
+        <!-- Key Feature Checklist -->
+        <div class="vouch-hero-features-list">
+          <div class="vouch-hero-feature-item">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path>
+            </svg>
+            <span><strong>Zero-Config Integration:</strong> 1-click GitHub App &amp; OAuth</span>
+          </div>
+          <div class="vouch-hero-feature-item">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path>
+            </svg>
+            <span><strong>Multi-Model Risk Scoring:</strong> XGBoost + DistilBERT NLP</span>
+          </div>
+          <div class="vouch-hero-feature-item">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path>
+            </svg>
+            <span><strong>Rubber-Stamp Detection:</strong> Spot rushed 45s approvals instantly</span>
+          </div>
+        </div>
+
+        <div class="vouch-hero-cta-group">
+          <a href="#demo-analysis" class="vouch-btn-secondary">
+            <span>Explore demo ↓</span>
+          </a>
+          <a href="#capabilities" class="vouch-btn-secondary" style="color:var(--color-fg-muted);">
+            <span>Capabilities →</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: PROMINENT CONNECT YOUR REPOSITORY BOX -->
+      <div class="vouch-hero-auth-col" id="auth-section">
+        <div class="gh-auth-card">
+          <div class="gh-auth-header">
+            <div class="gh-auth-icon-wrap">
+              <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8.533.133 13.783 1.813A1.75 1.75 0 0 1 15 3.48v4.387a9.87 9.87 0 0 1-5.093 8.653.75.75 0 0 1-.72 0A9.87 9.87 0 0 1 1 7.868V3.48a1.75 1.75 0 0 1 1.217-1.667L7.467.133a1.748 1.748 0 0 1 1.066 0ZM8 1.55l-5.32 1.702a.25.25 0 0 0-.18.228v4.388c0 3.197 1.884 6.136 4.75 7.604a17.433 17.433 0 0 0 4.75-7.604V3.48a.25.25 0 0 0-.18-.228L8 1.55Zm2.78 4.67a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.75.75 0 1 1 1.06-1.06L6.5 8.94l2.97-2.97a.75.75 0 0 1 1.06 0Z"></path>
+              </svg>
+            </div>
+            <h3 class="gh-auth-title" style="font-size:18px;">Connect Your Repository</h3>
+            <p class="gh-auth-subtitle" style="font-size:12.5px;">
+              Connect your GitHub account or Personal Token to score repositories with dedicated 5,000 req/hr API quota.
+            </p>
+          </div>
+
+          {% if error %}
+          <div class="gh-auth-alert" style="background:var(--color-danger-subtle); border-color:#ff818266; color:var(--color-danger-fg);">
+            {{ error }}
+          </div>
+          {% endif %}
+
+          <div class="gh-auth-actions">
+            {% if app_configured and app_install_url %}
+            <!-- GitHub App install button (primary) -->
+            <a href="{{ app_install_url }}" class="gh-btn-connect-oauth" id="btn-install-github-app">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+              </svg>
+              <span>Install Vouch on GitHub</span>
+            </a>
+            {% else %}
+            <!-- OAuth App Button -->
+            <a href="/auth/github" class="gh-btn-connect-oauth" id="btn-connect-github">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+              </svg>
+              <span>Connect with GitHub</span>
+            </a>
+            {% endif %}
+
+            {% if not app_configured %}
+            <!-- Setup instructions drawer -->
+            <div style="background:var(--color-canvas-default); border:1px solid var(--color-border-default); border-radius:6px; padding:12px; margin-top:10px; text-align:left;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-attention-fg);">
+                  <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path>
+                </svg>
+                <span style="font-weight:600; font-size:12px; color:var(--color-fg-default);">GitHub App not configured</span>
+              </div>
+              <p style="font-size:11.5px; color:var(--color-fg-muted); margin:0 0 8px;">
+                Add credentials to <code>.env</code> to enable 1-click GitHub installation.
+              </p>
+
+              <details>
+                <summary style="font-size:11.5px; font-weight:600; color:var(--color-accent-fg); cursor:pointer; list-style:none;">
+                  ▶ View setup instructions
+                </summary>
+                <ol style="font-size:11px; color:var(--color-fg-default); margin:8px 0 0 14px; line-height:1.7;">
+                  <li>Go to <a href="https://github.com/settings/apps/new" target="_blank" style="color:var(--color-accent-fg);">github.com/settings/apps/new</a></li>
+                  <li>Set App name: <code>Vouch</code></li>
+                  <li>Setup URL: <code>{{ computed_app_callback_uri }}</code></li>
+                  <li>Permissions: Contents (Read), Pull requests (Read), Metadata (Read)</li>
+                  <li>Add to <code>.env</code> and restart server</li>
+                </ol>
+              </details>
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="gh-auth-divider">
+            <span>or enter personal access token</span>
+          </div>
+
+          <!-- Token Form (PAT) -->
+          <form id="inline-token-form" onsubmit="handleInlineTokenSubmit(event)">
+            <div style="margin-bottom: 8px; text-align:left;">
+              <label for="landing-token-input" style="display:block; font-size:12px; font-weight:600; color:var(--color-fg-muted); margin-bottom:6px;">
+                GitHub Personal Access Token (classic or fine-grained)
+              </label>
+              <div style="display:flex; gap:8px;">
+                <input
+                  type="password"
+                  id="landing-token-input"
+                  class="gh-filter-input"
+                  style="flex:1; border:1px solid var(--color-border-default); border-radius:6px; padding:8px 12px; font-family:var(--font-mono, monospace); font-size:13px; background:var(--color-canvas-default);"
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                  autocomplete="off"
+                  required
+                />
+                <button type="submit" class="gh-btn gh-btn-primary" id="landing-token-submit-btn" style="padding:8px 16px; font-size:13px; white-space:nowrap;">
+                  Continue
+                </button>
+              </div>
+            </div>
+
+            <div id="landing-token-error" style="display:none; padding:8px 12px; background:var(--color-danger-subtle); color:var(--color-danger-fg); border:1px solid #ff818266; border-radius:6px; font-size:12px; margin-top:8px; text-align:left;"></div>
+            <div id="landing-token-success" style="display:none; padding:8px 12px; background:var(--color-success-subtle); color:var(--color-success-fg); border:1px solid #4ac26b66; border-radius:6px; font-size:12px; margin-top:8px; text-align:left;"></div>
+
+            <div style="font-size:11.5px; color:var(--color-fg-muted); margin-top:6px; text-align:left;">
+              Tokens are stored in your encrypted session cookie and never shared.
+            </div>
+          </form>
+
+          <div class="gh-auth-footer-link">
+            <a href="/repos">
+              Explore sample repositories in Demo Mode →
+            </a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- REALISTIC VOUCH PRODUCT INTERFACE HERO MOCKUP -->
+    <div class="vouch-ui-card">
+      <div class="vouch-ui-card-header">
+        <div class="vouch-ui-pr-meta">
+          <span class="vouch-ui-pr-tag">PR #1842</span>
+          <div>
+            <div class="vouch-ui-pr-title">Payment reconciliation changes</div>
+            <div class="vouch-ui-pr-sub">payments-service · +450 / -120 lines across 3 sensitive files</div>
+          </div>
+        </div>
+        <div class="vouch-badge vouch-badge-medium">
+          <span>● Medium Residual Risk</span>
+        </div>
+      </div>
+
+      <div class="vouch-ui-card-body">
+        <div class="vouch-ui-metrics-grid">
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Risk Level</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-badge vouch-badge-medium">MEDIUM</span>
+            </div>
+          </div>
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Residual Risk</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-metric-num" style="color:var(--color-attention-fg);">37</span>
+              <span style="font-size:12px; color:var(--color-fg-muted);">/ 100</span>
+            </div>
+          </div>
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Review Depth</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-badge vouch-badge-high">SHALLOW</span>
+            </div>
+          </div>
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Reviewer Attention</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-badge vouch-badge-high">LOW</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Key Findings -->
+        <div class="vouch-findings-block">
+          <div class="vouch-findings-title">Key Findings</div>
+          <div class="vouch-findings-list">
+            <div class="vouch-finding-item">
+              <span class="vouch-finding-bullet">!</span>
+              <span><strong>Critical payment path modified:</strong> <code>/services/billing/reconcile.go</code> contains core transaction ledger updates.</span>
+            </div>
+            <div class="vouch-finding-item">
+              <span class="vouch-finding-bullet">!</span>
+              <span><strong>Reviewer coverage limited:</strong> 1 reviewer assigned for 570 lines of high-impact changes.</span>
+            </div>
+            <div class="vouch-finding-item">
+              <span class="vouch-finding-bullet">!</span>
+              <span><strong>Shallow review activity:</strong> Approved in 42 seconds with no inline technical comments.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Stats Bar -->
+        <div class="vouch-ui-footer-bar">
+          <div class="vouch-ui-stats-inline">
+            <div class="vouch-ui-stat-item">
+              <strong>2</strong> reviewers
+            </div>
+            <div class="vouch-ui-stat-item">
+              <strong>14</strong> comments
+            </div>
+            <div class="vouch-ui-stat-item">
+              <strong>3</strong> files changed
+            </div>
+          </div>
+          <div style="font-weight:600; color:var(--color-attention-fg);">
+            1 unresolved finding
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 2. PROBLEM SECTION ───────────────────────────────────── -->
+  <section class="vouch-section" id="problem">
+    <div class="vouch-section-header">
+      <span class="vouch-section-kicker">The Code Review Problem</span>
+      <h2 class="vouch-section-title">Approval doesn't always mean thorough review.</h2>
+      <p class="vouch-section-sub">
+        Traditional CI/CD pipelines verify that code compiles and tests pass. But when senior engineers face review fatigue, high-risk pull requests get rubber-stamped without deep scrutiny.
       </p>
     </div>
 
-    {% if error %}
-    <div class="gh-auth-alert" style="background:var(--color-danger-subtle); border-color:#ff818266; color:var(--color-danger-fg);">
-      {{ error }}
+    <div class="vouch-problem-grid">
+      <!-- Rubber Stamp Card -->
+      <div class="vouch-problem-card danger-border">
+        <div class="vouch-problem-card-header">
+          <span class="vouch-badge vouch-badge-high">🚨 Rubber-Stamp Review</span>
+          <span style="font-size:12px; font-weight:600; color:var(--color-danger-fg);">High Residual Risk</span>
+        </div>
+        <div class="vouch-problem-math">
+          <code>0.90 × (1 − 0.10) = <strong style="color:var(--color-danger-fg);">0.81</strong></code>
+        </div>
+        <div class="vouch-problem-title" style="margin-bottom:8px;">High Change Risk + Shallow Scrutiny</div>
+        <p class="vouch-problem-desc">
+          800 lines changed in security layer, approved in 45 seconds with a single "LGTM" comment. High probability of silent defect spill.
+        </p>
+      </div>
+
+      <!-- Deep Review Card -->
+      <div class="vouch-problem-card success-border">
+        <div class="vouch-problem-card-header">
+          <span class="vouch-badge vouch-badge-passed">✅ Deep Technical Review</span>
+          <span style="font-size:12px; font-weight:600; color:var(--color-success-fg);">Low Residual Risk</span>
+        </div>
+        <div class="vouch-problem-math">
+          <code>0.90 × (1 − 0.90) = <strong style="color:var(--color-success-fg);">0.09</strong></code>
+        </div>
+        <div class="vouch-problem-title" style="margin-bottom:8px;">High Change Risk + Deep Scrutiny</div>
+        <p class="vouch-problem-desc">
+          Same 800 lines changed, but 3 senior reviewers spent 45 minutes posting 14 substantive technical comments. Residual risk is safe.
+        </p>
+      </div>
     </div>
-    {% endif %}
+  </section>
 
-    <!-- ── PRIMARY AUTH ACTIONS ──────────────────────────────── -->
-    <div class="gh-auth-actions">
+  <!-- ── 3. HOW VOUCH WORKS SECTION ───────────────────────────── -->
+  <section class="vouch-section" id="how-it-works">
+    <div class="vouch-section-header">
+      <span class="vouch-section-kicker">Workflow Pipeline</span>
+      <h2 class="vouch-section-title">How Vouch works</h2>
+      <p class="vouch-section-sub">
+        Infrastructure for code review visibility in three automated steps.
+      </p>
+    </div>
 
+    <div class="vouch-steps-grid">
+      <!-- Step 01 -->
+      <div class="vouch-step-card">
+        <span class="vouch-step-num">STEP 01</span>
+        <h3 class="vouch-step-title">Connect GitHub</h3>
+        <p class="vouch-step-desc">
+          Install the Vouch GitHub App or connect via OAuth. Vouch automatically listens to pull request webhooks across your repositories.
+        </p>
+        <div class="vouch-step-ui-snippet">
+          <code>GET /api/github/webhooks → 200 OK</code>
+        </div>
+      </div>
+
+      <!-- Step 02 -->
+      <div class="vouch-step-card">
+        <span class="vouch-step-num">STEP 02</span>
+        <h3 class="vouch-step-title">Analyze the pull request</h3>
+        <p class="vouch-step-desc">
+          Vouch evaluates change complexity, path sensitivity, reviewer active session timing, and inline comment technical depth.
+        </p>
+        <div class="vouch-step-ui-snippet">
+          <code>Scoring diff + scrutiny + attention</code>
+        </div>
+      </div>
+
+      <!-- Step 03 -->
+      <div class="vouch-step-card">
+        <span class="vouch-step-num">STEP 03</span>
+        <h3 class="vouch-step-title">Understand residual risk</h3>
+        <p class="vouch-step-desc">
+          Engineering leads get real-time visibility into residual risk. High-risk PRs with shallow reviews are flagged for re-review before production rollout.
+        </p>
+        <div class="vouch-step-ui-snippet">
+          <code>Residual Risk: 0.81 → Re-queue PR</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 4. PRODUCT CAPABILITIES SECTION ──────────────────────── -->
+  <section class="vouch-section" id="capabilities">
+    <div class="vouch-section-header">
+      <span class="vouch-section-kicker">Product Capabilities</span>
+      <h2 class="vouch-section-title">Engineered for technical rigor</h2>
+      <p class="vouch-section-sub">
+        Actionable visibility into review thoroughness and code safety.
+      </p>
+    </div>
+
+    <div class="vouch-capabilities-grid">
+      <!-- Capability 1 -->
+      <div class="vouch-capability-card">
+        <div class="vouch-capability-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.75V13.5h13.75a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 1.5 0Zm14.28 2.53-5.25 5.25a.75.75 0 0 1-1.06 0L7 7.06 2.53 11.53a.75.75 0 0 1-1.06-1.06l5-5a.75.75 0 0 1 1.06 0l2.47 2.47 4.72-4.72a.75.75 0 0 1 1.06 1.06Z"></path></svg>
+        </div>
+        <h3 class="vouch-capability-title">PR Intelligence</h3>
+        <p class="vouch-capability-desc">
+          Evaluates diff magnitude, file churn, path criticality (`/auth/`, `/billing/`, SQL migrations), and author velocity.
+        </p>
+      </div>
+
+      <!-- Capability 2 -->
+      <div class="vouch-capability-card">
+        <div class="vouch-capability-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8.533.133 13.783 1.813A1.75 1.75 0 0 1 15 3.48v4.387a9.87 9.87 0 0 1-5.093 8.653.75.75 0 0 1-.72 0A9.87 9.87 0 0 1 1 7.868V3.48a1.75 1.75 0 0 1 1.217-1.667L7.467.133a1.748 1.748 0 0 1 1.066 0ZM8 1.55l-5.32 1.702a.25.25 0 0 0-.18.228v4.388c0 3.197 1.884 6.136 4.75 7.604a17.433 17.433 0 0 0 4.75-7.604V3.48a.25.25 0 0 0-.18-.228L8 1.55Zm2.78 4.67a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.75.75 0 1 1 1.06-1.06L6.5 8.94l2.97-2.97a.75.75 0 0 1 1.06 0Z"></path></svg>
+        </div>
+        <h3 class="vouch-capability-title">Residual Risk</h3>
+        <p class="vouch-capability-desc">
+          Quantifies unmitigated risk using the formula <code>Residual Risk = Change Risk × (1 − Review Scrutiny)</code>.
+        </p>
+      </div>
+
+      <!-- Capability 3 -->
+      <div class="vouch-capability-card">
+        <div class="vouch-capability-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 13H3.06L.72 15.34A.75.75 0 0 1 0 14.81v-12Zm1.75-.25a.25.25 0 0 0-.25.25v9.44l1.22-1.22a.75.75 0 0 1 .53-.22h11a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25H1.75Z"></path></svg>
+        </div>
+        <h3 class="vouch-capability-title">Review Depth</h3>
+        <p class="vouch-capability-desc">
+          Parses review comment threads to distinguish deep technical critiques from low-scrutiny approval comments.
+        </p>
+      </div>
+
+      <!-- Capability 4 -->
+      <div class="vouch-capability-card">
+        <div class="vouch-capability-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v3.25l2.5 1.5a.75.75 0 0 1-.75 1.3l-3-1.8A.75.75 0 0 1 6.75 8.25v-3.5a.75.75 0 0 1 1.5 0Z"></path></svg>
+        </div>
+        <h3 class="vouch-capability-title">Reviewer Attention</h3>
+        <p class="vouch-capability-desc">
+          Measures reviewer active session duration and attention ratio relative to lines of code changed.
+        </p>
+      </div>
+
+      <!-- Capability 5 -->
+      <div class="vouch-capability-card">
+        <div class="vouch-capability-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>
+        </div>
+        <h3 class="vouch-capability-title">Rubber-Stamp Detection</h3>
+        <p class="vouch-capability-desc">
+          Instantly flags 45-second approvals on complex, high-impact pull requests before deployment.
+        </p>
+      </div>
+
+      <!-- Capability 6 -->
+      <div class="vouch-capability-card">
+        <div class="vouch-capability-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.75C4 .784 4.784 0 5.75 0h4.5C11.216 0 12 .784 12 1.75v12.5A1.75 1.75 0 0 1 10.25 16h-4.5A1.75 1.75 0 0 1 4 14.25V1.75Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h4.5a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25h-4.5Z"></path></svg>
+        </div>
+        <h3 class="vouch-capability-title">Explainable Risk Signals</h3>
+        <p class="vouch-capability-desc">
+          Provides clear, audit-ready summaries detailing exact risk drivers for engineering management.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 5. DEEP PRODUCT PREVIEW SECTION ─────────────────────── -->
+  <section class="vouch-section" id="demo-analysis">
+    <div class="vouch-section-header">
+      <span class="vouch-section-kicker">Live Product Preview</span>
+      <h2 class="vouch-section-title">Deep review intelligence in action</h2>
+      <p class="vouch-section-sub">
+        Sample analysis screen showing how Vouch evaluates pull requests in real time.
+      </p>
+    </div>
+
+    <!-- Product Screen Frame -->
+    <div class="vouch-ui-card">
+      <div class="vouch-ui-card-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-fg-muted);"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path></svg>
+          <span style="font-size:13px; font-weight:600; color:var(--color-fg-default);">kubernetes/kubernetes</span>
+          <span style="color:var(--color-fg-subtle);">/</span>
+          <span style="font-size:13px; font-weight:600; color:var(--color-fg-default);">#118492</span>
+        </div>
+        <div class="vouch-badge vouch-badge-high">
+          <span>🚨 Re-review Required</span>
+        </div>
+      </div>
+
+      <div class="vouch-ui-card-body">
+        <div style="font-size:18px; font-weight:700; color:var(--color-fg-default); margin-bottom:6px;">
+          feat(net): rewrite iptables proxy sync loop
+        </div>
+        <div style="font-size:13px; color:var(--color-fg-muted); margin-bottom:20px;">
+          Opened by @thockin · 840 lines diff across 14 sensitive security files
+        </div>
+
+        <div class="vouch-ui-metrics-grid">
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Change Risk</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-metric-num" style="color:var(--color-danger-fg);">0.92</span>
+              <span class="vouch-badge vouch-badge-high">HIGH</span>
+            </div>
+          </div>
+
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Review Scrutiny</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-metric-num" style="color:var(--color-attention-fg);">0.18</span>
+              <span class="vouch-badge vouch-badge-high">SHALLOW</span>
+            </div>
+          </div>
+
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Residual Risk</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-metric-num" style="color:var(--color-danger-fg);">0.75</span>
+              <span class="vouch-badge vouch-badge-high">HIGH</span>
+            </div>
+          </div>
+
+          <div class="vouch-metric-box">
+            <span class="vouch-metric-label">Action</span>
+            <div class="vouch-metric-value-row">
+              <span class="vouch-badge vouch-badge-high">RE-QUEUE</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align:center; padding-top:10px;">
+          <a href="/repos" class="vouch-btn-secondary">
+            <span>Explore full repository catalog →</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 6. ENGINEERING PRINCIPLES SECTION ────────────────────── -->
+  <section class="vouch-section" id="principles">
+    <div class="vouch-section-header">
+      <span class="vouch-section-kicker">Design Philosophy</span>
+      <h2 class="vouch-section-title">Built for engineering teams</h2>
+      <p class="vouch-section-sub">
+        Designed to fit into existing developer infrastructure without adding friction.
+      </p>
+    </div>
+
+    <div class="vouch-principles-grid">
+      <div class="vouch-principle-card">
+        <h3 class="vouch-principle-title">GitHub-Native</h3>
+        <p class="vouch-principle-desc">Integrates seamlessly via GitHub App webhooks and fine-grained repository permissions.</p>
+      </div>
+      <div class="vouch-principle-card">
+        <h3 class="vouch-principle-title">Explainable Signals</h3>
+        <p class="vouch-principle-desc">No opaque scores. Every risk rating is supported by readable diff metrics and comment analysis.</p>
+      </div>
+      <div class="vouch-principle-card">
+        <h3 class="vouch-principle-title">Review-Focused</h3>
+        <p class="vouch-principle-desc">Augments human code review to highlight unscrutinized high-risk modifications.</p>
+      </div>
+      <div class="vouch-principle-card">
+        <h3 class="vouch-principle-title">Existing Workflows</h3>
+        <p class="vouch-principle-desc">Fits naturally alongside your existing pull request, queueing, and triage procedures.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 7. FINAL CTA BOX ──────────────────────────────────────── -->
+  <div class="vouch-cta-box">
+    <h2 class="vouch-cta-title">See what remains after review.</h2>
+    <p class="vouch-cta-sub">
+      Connect your GitHub account to start scoring review confidence and residual risk across your repositories.
+    </p>
+    <div class="vouch-hero-cta-group">
       {% if app_configured and app_install_url %}
-      <!-- GitHub App install button (primary — sleek dark style) -->
-      <a href="{{ app_install_url }}" class="gh-btn-connect-oauth" id="btn-install-github-app" style="margin-bottom:8px;">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
-        </svg>
-        <span>Install Vouch on GitHub</span>
+      <a href="{{ app_install_url }}" class="vouch-btn-primary">
+        <span>Connect with GitHub</span>
+      </a>
+      {% else %}
+      <a href="#auth-section" class="vouch-btn-primary">
+        <span>Connect with GitHub</span>
       </a>
       {% endif %}
-
-      {% if not app_configured %}
-      <!-- App not configured — show setup panel -->
-      <div style="background:var(--color-canvas-subtle); border:1px solid var(--color-border-default); border-radius:8px; padding:16px; margin-bottom:12px;">
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-attention-fg);">
-            <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path>
-          </svg>
-          <span style="font-weight:600; font-size:13px; color:var(--color-fg-default);">GitHub App not configured</span>
-        </div>
-        <p style="font-size:12px; color:var(--color-fg-muted); margin:0 0 12px;">
-          Set up a GitHub App <strong>or</strong> OAuth App to enable "Connect with GitHub". Add the credentials to <code>.env</code> and restart the server.
-        </p>
-
-        <!-- Step-by-step setup instructions -->
-        <details style="margin-bottom:10px;">
-          <summary style="font-size:12px; font-weight:600; color:var(--color-accent-fg); cursor:pointer; list-style:none;">
-            ▶ Step-by-step: Create a GitHub App (recommended)
-          </summary>
-          <ol style="font-size:11.5px; color:var(--color-fg-default); margin:10px 0 0 16px; line-height:1.8;">
-            <li>Go to <a href="https://github.com/settings/apps/new" target="_blank" style="color:var(--color-accent-fg);">github.com/settings/apps/new</a></li>
-            <li>Set <strong>GitHub App name</strong>: <code>Vouch</code></li>
-            <li>Set <strong>Homepage URL</strong>: <code>{{ computed_app_callback_uri.split('/auth')[0] }}</code></li>
-            <li>Under <strong>Post installation → Setup URL</strong>, paste:<br>
-              <code style="background:var(--color-canvas-default); padding:2px 6px; border-radius:4px; font-size:11px; display:block; margin-top:4px; user-select:all;">{{ computed_app_callback_uri }}</code>
-            </li>
-            <li>Enable <strong>"Redirect on update"</strong></li>
-            <li>Set <strong>Permissions → Repository</strong>: Contents (Read), Pull requests (Read), Metadata (Read)</li>
-            <li>Click <strong>Create GitHub App</strong></li>
-            <li>Copy the <strong>App ID</strong> and generate a <strong>Private Key</strong> (.pem)</li>
-            <li>Add to <code>.env</code>:
-              <pre style="background:var(--color-canvas-default); border:1px solid var(--color-border-default); border-radius:4px; padding:8px; font-size:11px; margin-top:6px; overflow-x:auto;">GITHUB_APP_ID=your_app_id
-GITHUB_APP_PRIVATE_KEY_PATH=/path/to/vouch.pem
-GITHUB_APP_INSTALL_URL=https://github.com/apps/vouch/installations/new
-APP_BASE_URL={{ computed_app_callback_uri.split('/auth')[0] }}</pre>
-            </li>
-            <li>Restart the server — the <strong>Install Vouch on GitHub</strong> button will appear</li>
-          </ol>
-        </details>
-
-        <details>
-          <summary style="font-size:12px; font-weight:600; color:var(--color-accent-fg); cursor:pointer; list-style:none;">
-            ▶ Step-by-step: Create a GitHub OAuth App (simpler, user tokens)
-          </summary>
-          <ol style="font-size:11.5px; color:var(--color-fg-default); margin:10px 0 0 16px; line-height:1.8;">
-            <li>Go to <a href="https://github.com/settings/applications/new" target="_blank" style="color:var(--color-accent-fg);">github.com/settings/applications/new</a></li>
-            <li>Set <strong>Application name</strong>: <code>Vouch</code></li>
-            <li>Set <strong>Homepage URL</strong>: <code>{{ computed_oauth_callback_uri.split('/auth')[0] }}</code></li>
-            <li>Set <strong>Authorization callback URL</strong> (paste exactly):
-              <code style="background:var(--color-canvas-default); padding:2px 6px; border-radius:4px; font-size:11px; display:block; margin-top:4px; user-select:all;">{{ computed_oauth_callback_uri }}</code>
-            </li>
-            <li>Click <strong>Register application</strong></li>
-            <li>Copy <strong>Client ID</strong> and generate a new <strong>Client Secret</strong></li>
-            <li>Add to <code>.env</code>:
-              <pre style="background:var(--color-canvas-default); border:1px solid var(--color-border-default); border-radius:4px; padding:8px; font-size:11px; margin-top:6px; overflow-x:auto;">GITHUB_CLIENT_ID=your_client_id
-GITHUB_CLIENT_SECRET=your_client_secret
-APP_BASE_URL={{ computed_oauth_callback_uri.split('/auth')[0] }}</pre>
-            </li>
-            <li>Restart the server — the <strong>Connect with GitHub</strong> button will work</li>
-          </ol>
-        </details>
-      </div>
-      {% endif %}
-
-    </div>
-
-    <!-- ── Divider ────────────────────────────────────────────── -->
-    <div class="gh-auth-divider">
-      <span>or enter personal access token</span>
-    </div>
-
-    <!-- ── Token Input (if person is not ready to connect OAuth) ─ -->
-    <form id="inline-token-form" onsubmit="handleInlineTokenSubmit(event)">
-      <div style="margin-bottom: 8px;">
-        <label for="landing-token-input" style="display:block; font-size:12px; font-weight:600; color:var(--color-fg-muted); margin-bottom:6px;">
-          GitHub Personal Access Token (classic or fine-grained)
-        </label>
-        <div style="display:flex; gap:8px;">
-          <input
-            type="password"
-            id="landing-token-input"
-            class="gh-filter-input"
-            style="flex:1; border:1px solid var(--color-border-default); border-radius:6px; padding:8px 12px; font-family:ui-monospace, monospace; font-size:13px; background:var(--color-canvas-default);"
-            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-            autocomplete="off"
-            required
-          />
-          <button type="submit" class="gh-btn gh-btn-primary" id="landing-token-submit-btn" style="padding:8px 16px; font-size:13px; white-space:nowrap;">
-            Continue
-          </button>
-        </div>
-      </div>
-
-      <div id="landing-token-error" style="display:none; padding:8px 12px; background:var(--color-danger-subtle); color:var(--color-danger-fg); border:1px solid #ff818266; border-radius:6px; font-size:12px; margin-top:8px;"></div>
-      <div id="landing-token-success" style="display:none; padding:8px 12px; background:var(--color-success-subtle); color:var(--color-success-fg); border:1px solid #4ac26b66; border-radius:6px; font-size:12px; margin-top:8px;"></div>
-
-      <div style="font-size:11.5px; color:var(--color-fg-muted); margin-top:6px;">
-        Tokens are stored in your encrypted session cookie and never shared.
-      </div>
-    </form>
-
-    <!-- ── Demo Mode Link ─────────────────────────────────────── -->
-    <div class="gh-auth-footer-link">
-      <a href="/repos">
-        Explore sample repositories in Demo Mode →
+      <a href="/repos" class="vouch-btn-secondary">
+        <span>Explore demo</span>
       </a>
     </div>
   </div>
+
+  <!-- ── 8. MINIMAL DEVELOPER FOOTER ─────────────────────────── -->
+  <footer style="border-top:1px solid var(--color-border-default); padding:40px 0; margin-top:60px; font-size:13px; color:var(--color-fg-muted); width:100%;">
+    <div class="vouch-footer-inner" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <strong style="color:var(--color-fg-default);">Vouch</strong>
+        <span>· Code Review Intelligence for GitHub</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:20px;">
+        <a href="#problem" style="color:var(--color-fg-muted); text-decoration:none;">Product</a>
+        <a href="#how-it-works" style="color:var(--color-fg-muted); text-decoration:none;">How it works</a>
+        <a href="#capabilities" style="color:var(--color-fg-muted); text-decoration:none;">Capabilities</a>
+        <a href="https://github.com/ankit-cybertron/Vouch" target="_blank" rel="noopener noreferrer" style="color:var(--color-fg-muted); text-decoration:none;">GitHub ↗</a>
+      </div>
+    </div>
+  </footer>
+
 </div>
 {% endblock %}
 
@@ -217,4 +662,3 @@ APP_BASE_URL={{ computed_oauth_callback_uri.split('/auth')[0] }}</pre>
   }
 </script>
 {% endblock %}
-

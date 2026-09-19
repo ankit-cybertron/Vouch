@@ -10,29 +10,31 @@
 }
 
 :root {
-  --color-canvas-default: #ffffff;
-  --color-canvas-subtle: #f6f8fa;
-  --color-canvas-inset: #f6f8fa;
-  --color-border-default: #d0d7de;
-  --color-border-muted: #d8dee4;
-  --color-fg-default: #1f2328;
-  --color-fg-muted: #656d76;
-  --color-fg-subtle: #8c959f;
-  --color-accent-fg: #0969da;
-  --color-accent-emphasis: #0969da;
-  --color-accent-subtle: #ddf4ff;
-  --color-success-fg: #1a7f37;
-  --color-success-emphasis: #1f883d;
-  --color-success-subtle: #dafbe1;
-  --color-attention-fg: #9a6700;
-  --color-attention-emphasis: #d4a72c;
-  --color-attention-subtle: #fff8c5;
-  --color-danger-fg: #cf222e;
-  --color-danger-emphasis: #cf222e;
-  --color-danger-subtle: #ffebe9;
-  --color-done-fg: #8250df;
-  --color-done-emphasis: #8250df;
-  --color-done-subtle: #fbefff;
+  --color-canvas-default: #0d1117;
+  --color-canvas-subtle: #161b22;
+  --color-canvas-inset: #010409;
+  --color-card-bg: #161b22;
+  --color-card-hover: #1c2128;
+  --color-border-default: #30363d;
+  --color-border-muted: #21262d;
+  --color-fg-default: #f0f6fc;
+  --color-fg-muted: #8b949e;
+  --color-fg-subtle: #6e7681;
+  --color-accent-fg: #58a6ff;
+  --color-accent-emphasis: #1f6feb;
+  --color-accent-subtle: rgba(56, 139, 253, 0.15);
+  --color-success-fg: #3fb950;
+  --color-success-emphasis: #238636;
+  --color-success-subtle: rgba(46, 160, 67, 0.15);
+  --color-attention-fg: #d29922;
+  --color-attention-emphasis: #9e6a03;
+  --color-attention-subtle: rgba(187, 128, 9, 0.15);
+  --color-danger-fg: #f85149;
+  --color-danger-emphasis: #da3633;
+  --color-danger-subtle: rgba(248, 81, 73, 0.15);
+  --color-done-fg: #a371f7;
+  --color-done-emphasis: #8957e5;
+  --color-done-subtle: rgba(163, 113, 247, 0.15);
 }
 
 html, body {
@@ -41,7 +43,7 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: var(--color-fg-default);
@@ -68,15 +70,17 @@ a:hover {
 .gh-nav {
   background-color: var(--color-canvas-subtle);
   border-bottom: 1px solid var(--color-border-default);
-  padding: 12px 24px;
+  padding: 14px 0;
   position: sticky;
   top: 0;
   z-index: 100;
+  width: 100%;
 }
 
 .gh-nav-inner {
   max-width: 1280px;
   margin: 0 auto;
+  padding: 0 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -239,13 +243,13 @@ a:hover {
   transition: all 0.15s ease;
 }
 .gh-select:hover {
-  background-color: #f3f4f6;
+  background-color: var(--color-card-hover);
   border-color: var(--color-border-default);
 }
 .gh-select:focus {
   border-color: var(--color-accent-fg);
-  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.3);
-  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.2);
+  background-color: var(--color-canvas-default);
 }
 
 .gh-filter-input-wrap {
@@ -289,7 +293,8 @@ a:hover {
   white-space: nowrap;
 }
 .gh-btn:hover {
-  background-color: #f3f4f6;
+  background-color: var(--color-card-hover);
+  color: var(--color-fg-default);
   text-decoration: none;
 }
 .gh-btn-primary {
@@ -449,13 +454,24 @@ a:hover {
   color: var(--color-fg-muted);
 }
 
+.vouch-top-accent-line {
+  height: 2px;
+  background: linear-gradient(90deg, #1f6feb 0%, #3fb950 50%, #a371f7 100%);
+  width: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+}
+
 /* ── PR Row List ────────────────────────────────────────────── */
 .gh-pr-row {
   display: flex;
   align-items: flex-start;
   padding: 10px 16px;
   border-bottom: 1px solid var(--color-border-muted);
-  transition: background-color 0.1s ease;
+  border-left: 3px solid transparent;
+  transition: background-color 0.15s ease, border-left-color 0.15s ease;
   position: relative;
 }
 .gh-pr-row:last-child {
@@ -465,6 +481,28 @@ a:hover {
 }
 .gh-pr-row:hover {
   background-color: var(--color-canvas-subtle);
+  border-left-color: var(--color-accent-fg);
+}
+
+/* ── Avatar Stacks & Diff Hunk Highlighting ─────────────────── */
+.gh-avatar-stack {
+  display: inline-flex;
+  align-items: center;
+  flex-direction: row-reverse;
+}
+.gh-avatar-stack .gh-avatar-stack-item {
+  margin-left: -8px;
+  border: 2px solid var(--color-canvas-default);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  transition: transform 0.15s ease, z-index 0.15s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gh-avatar-stack .gh-avatar-stack-item:hover {
+  transform: translateY(-2px) scale(1.15);
+  z-index: 10;
 }
 
 .gh-pr-icon {
@@ -533,9 +571,9 @@ a:hover {
   font-weight: 600;
 }
 .gh-label-confidence {
-  background-color: #f6f8fa;
+  background-color: var(--color-canvas-subtle);
   color: var(--color-fg-muted);
-  border-color: var(--color-border-default);
+  border: 1px solid var(--color-border-default);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -589,7 +627,7 @@ a:hover {
 .gh-meter-bar {
   width: 70px;
   height: 4px;
-  background-color: #eaeef2;
+  background-color: var(--color-border-default);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -767,10 +805,10 @@ a:hover {
   border-bottom: 1px solid var(--color-border-default);
 }
 .gh-checks-header.requeued {
-  background-color: #fff8f8;
+  background-color: rgba(248, 81, 73, 0.1);
 }
 .gh-checks-header.passed {
-  background-color: #f6fdf8;
+  background-color: rgba(46, 160, 67, 0.1);
 }
 .gh-checks-icon {
   width: 24px;
@@ -968,6 +1006,13 @@ a:hover {
   flex-shrink: 0;
   background-color: #3572A5;
 }
+.lang-dot.lang-go { background-color: #00ADD8 !important; }
+.lang-dot.lang-python { background-color: #3572A5 !important; }
+.lang-dot.lang-typescript { background-color: #3178C6 !important; }
+.lang-dot.lang-javascript { background-color: #f1e05a !important; }
+.lang-dot.lang-rust { background-color: #dea584 !important; }
+.lang-dot.lang-cpp { background-color: #f34b7d !important; }
+.lang-dot.lang-java { background-color: #b07219 !important; }
 
 .gh-comments-count {
   display: inline-flex;
@@ -1124,8 +1169,9 @@ a:hover {
 .gh-code-block {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12px;
-  background-color: #f6f8fa;
-  border: 1px solid var(--color-border-muted);
+  background-color: var(--color-canvas-subtle);
+  color: var(--color-fg-default);
+  border: 1px solid var(--color-border-default);
   border-radius: 6px;
   padding: 12px;
   overflow-x: auto;
@@ -1140,8 +1186,8 @@ a:hover {
 
 .gh-diff-snippet {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  background-color: #f6f8fa;
-  color: #1f2328;
+  background-color: var(--color-canvas-subtle);
+  color: var(--color-fg-default);
   white-space: pre-wrap;
   word-break: break-all;
   overflow-wrap: anywhere;
@@ -1455,7 +1501,10 @@ a:hover {
 @media (min-width: 1440px) {
   .gh-nav-inner,
   .main-content,
-  .gh-footer-inner {
+  .gh-footer-inner,
+  .vouch-landing-wrapper,
+  .vouch-header-inner,
+  .vouch-footer-inner {
     max-width: 1480px;
   }
   .gh-pr-layout {
@@ -1479,7 +1528,10 @@ a:hover {
 @media (min-width: 1800px) {
   .gh-nav-inner,
   .main-content,
-  .gh-footer-inner {
+  .gh-footer-inner,
+  .vouch-landing-wrapper,
+  .vouch-header-inner,
+  .vouch-footer-inner {
     max-width: 1720px;
   }
   .gh-pr-layout {
@@ -1590,8 +1642,12 @@ a:hover {
   }
 
   /* Main Content Spacing */
-  .main-content {
-    padding: 16px 14px;
+  .main-content,
+  .vouch-landing-wrapper,
+  .vouch-header-inner,
+  .vouch-footer-inner {
+    padding-left: 14px;
+    padding-right: 14px;
   }
 
   /* Subnav & Filtering */
@@ -1736,8 +1792,12 @@ a:hover {
 
 /* ── 6. Compact Mobile Phones (<= 480px) ──────────────────── */
 @media (max-width: 480px) {
-  .main-content {
-    padding: 12px 10px;
+  .main-content,
+  .vouch-landing-wrapper,
+  .vouch-header-inner,
+  .vouch-footer-inner {
+    padding-left: 10px;
+    padding-right: 10px;
   }
   .gh-nav {
     padding: 8px 10px;
@@ -1811,11 +1871,10 @@ a:hover {
 
 .landing-auth-body .main-content {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px;
+  display: block;
+  padding: 0;
   max-width: 100%;
+  width: 100%;
 }
 
 .gh-auth-container {
@@ -1957,6 +2016,668 @@ a:hover {
 .gh-auth-footer-link a:hover {
   color: var(--color-accent-fg);
   text-decoration: underline;
+}
+
+/* ============================================================
+   Vouch Developer Product Landing Page Design System
+   Technical, precise, calm, reliable, developer-first styling.
+   ============================================================ */
+
+.vouch-landing-wrapper {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px 80px 24px;
+  width: 100%;
+}
+
+.vouch-header-inner,
+.vouch-footer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+  width: 100%;
+}
+
+.vouch-section {
+  padding: 64px 0;
+  border-top: 1px solid var(--color-border-muted);
+}
+
+.vouch-section-header {
+  text-align: center;
+  max-width: 680px;
+  margin: 0 auto 44px auto;
+}
+
+.vouch-section-kicker {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--color-fg-muted);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.vouch-section-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-fg-default);
+  letter-spacing: -0.4px;
+  margin-bottom: 10px;
+  line-height: 1.25;
+}
+
+.vouch-section-sub {
+  font-size: 15px;
+  color: var(--color-fg-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── Hero Section (2-Column Split Grid Layout) ───────────────── */
+.vouch-hero-section {
+  padding: 44px 0 56px 0;
+}
+
+.vouch-hero-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 40px;
+  align-items: center;
+  text-align: left;
+  margin-bottom: 56px;
+}
+
+.vouch-hero-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.vouch-hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  color: var(--color-fg-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.vouch-status-dot-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success-fg);
+  box-shadow: 0 0 0 2px rgba(46, 160, 67, 0.2);
+}
+
+.vouch-hero-headline {
+  font-size: clamp(32px, 4vw, 44px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -1px;
+  color: var(--color-fg-default);
+  margin-bottom: 16px;
+}
+
+.vouch-hero-subheadline {
+  font-size: 16px;
+  color: var(--color-fg-muted);
+  line-height: 1.6;
+  margin: 0 0 24px 0;
+}
+
+.vouch-hero-features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.vouch-hero-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--color-fg-default);
+  font-weight: 500;
+}
+
+.vouch-hero-feature-item svg {
+  color: var(--color-success-fg);
+  flex-shrink: 0;
+}
+
+.vouch-hero-auth-col {
+  width: 100%;
+}
+
+.vouch-hero-auth-col .gh-auth-card {
+  max-width: 100%;
+  margin: 0;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(56, 139, 253, 0.25);
+  border: 1px solid rgba(56, 139, 253, 0.3);
+  background: var(--color-canvas-subtle);
+  border-radius: 10px;
+}
+
+@media (max-width: 960px) {
+  .vouch-hero-grid {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    text-align: center;
+  }
+  .vouch-hero-content {
+    align-items: center;
+  }
+  .vouch-hero-features-list {
+    align-items: flex-start;
+    text-align: left;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+.vouch-status-dot-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success-fg);
+  box-shadow: 0 0 0 2px rgba(31, 136, 61, 0.2);
+}
+
+.vouch-hero-headline {
+  font-size: clamp(32px, 5vw, 48px);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -1.2px;
+  color: var(--color-fg-default);
+  margin-bottom: 16px;
+}
+
+.vouch-hero-subheadline {
+  font-size: 17px;
+  color: var(--color-fg-muted);
+  line-height: 1.6;
+  max-width: 680px;
+  margin: 0 auto 28px auto;
+}
+
+.vouch-hero-cta-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.vouch-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff !important;
+  background-color: #1f883d;
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  border-radius: 6px;
+  text-decoration: none;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.vouch-btn-primary:hover {
+  background-color: #1a7f37;
+  color: #ffffff !important;
+  text-decoration: none;
+  box-shadow: 0 2px 4px rgba(27, 31, 36, 0.15);
+}
+
+.vouch-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+  background-color: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+}
+.vouch-btn-secondary:hover {
+  background-color: var(--color-canvas-inset);
+  border-color: var(--color-border-muted);
+  color: var(--color-fg-default);
+  text-decoration: none;
+}
+
+/* ── REALISTIC VOUCH PRODUCT INTERFACE CARD ──────────────────── */
+.vouch-ui-card {
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.12), 0 1px 3px rgba(27, 31, 36, 0.04);
+  overflow: hidden;
+  text-align: left;
+}
+
+.vouch-ui-card-header {
+  padding: 14px 20px;
+  background: var(--color-canvas-subtle);
+  border-bottom: 1px solid var(--color-border-default);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.vouch-ui-pr-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vouch-ui-pr-tag {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent-fg);
+  background: var(--color-accent-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(9, 105, 218, 0.2);
+}
+
+.vouch-ui-pr-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-fg-default);
+}
+
+.vouch-ui-pr-sub {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+}
+
+.vouch-ui-card-body {
+  padding: 24px;
+}
+
+.vouch-ui-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 16px;
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.vouch-metric-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vouch-metric-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-fg-muted);
+}
+
+.vouch-metric-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.vouch-metric-num {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-fg-default);
+}
+
+/* Status Badges */
+.vouch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.vouch-badge-high {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger-fg);
+  border: 1px solid rgba(207, 34, 46, 0.2);
+}
+.vouch-badge-medium {
+  background: var(--color-attention-subtle);
+  color: var(--color-attention-fg);
+  border: 1px solid rgba(212, 167, 44, 0.3);
+}
+.vouch-badge-passed {
+  background: var(--color-success-subtle);
+  color: var(--color-success-fg);
+  border: 1px solid rgba(31, 136, 61, 0.2);
+}
+
+/* Findings Section */
+.vouch-findings-block {
+  margin-bottom: 20px;
+}
+
+.vouch-findings-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-fg-muted);
+  margin-bottom: 10px;
+}
+
+.vouch-findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vouch-finding-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-muted);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-fg-default);
+}
+
+.vouch-finding-bullet {
+  color: var(--color-attention-fg);
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Review Breakdown Row */
+.vouch-ui-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-muted);
+  font-size: 12.5px;
+  color: var(--color-fg-muted);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.vouch-ui-stats-inline {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.vouch-ui-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Problem Comparison Cards ────────────────────────────────── */
+.vouch-problem-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.vouch-problem-card {
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 24px;
+  text-align: left;
+}
+
+.vouch-problem-card.danger-border {
+  border-top: 3px solid var(--color-danger-fg);
+}
+.vouch-problem-card.success-border {
+  border-top: 3px solid var(--color-success-fg);
+}
+
+.vouch-problem-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.vouch-problem-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-fg-default);
+}
+
+.vouch-problem-math {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  color: var(--color-fg-default);
+}
+
+.vouch-problem-desc {
+  font-size: 13.5px;
+  color: var(--color-fg-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── 3-Step Pipeline Grid ────────────────────────────────────── */
+.vouch-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.vouch-step-card {
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 24px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+}
+
+.vouch-step-num {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-accent-fg);
+  background: var(--color-accent-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 14px;
+  align-self: flex-start;
+}
+
+.vouch-step-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-fg-default);
+  margin-bottom: 8px;
+}
+
+.vouch-step-desc {
+  font-size: 13.5px;
+  color: var(--color-fg-muted);
+  line-height: 1.55;
+  margin-bottom: 16px;
+  flex: 1;
+}
+
+.vouch-step-ui-snippet {
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--color-fg-default);
+}
+
+/* ── Capabilities Grid ───────────────────────────────────────── */
+.vouch-capabilities-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.vouch-capability-card {
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.vouch-capability-card:hover {
+  border-color: var(--color-accent-fg);
+  box-shadow: 0 4px 12px rgba(140, 149, 159, 0.1);
+}
+
+.vouch-capability-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-fg-default);
+  margin-bottom: 12px;
+}
+
+.vouch-capability-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-fg-default);
+  margin-bottom: 6px;
+}
+
+.vouch-capability-desc {
+  font-size: 13px;
+  color: var(--color-fg-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Engineering Principles ──────────────────────────────────── */
+.vouch-principles-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.vouch-principle-card {
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: left;
+}
+
+.vouch-principle-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-fg-default);
+  margin-bottom: 6px;
+}
+
+.vouch-principle-desc {
+  font-size: 12.5px;
+  color: var(--color-fg-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Final CTA Box ───────────────────────────────────────────── */
+.vouch-cta-box {
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  border-radius: 10px;
+  padding: 48px 24px;
+  text-align: center;
+  margin-top: 40px;
+}
+
+.vouch-cta-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-fg-default);
+  margin-bottom: 12px;
+  letter-spacing: -0.4px;
+}
+
+.vouch-cta-sub {
+  font-size: 15px;
+  color: var(--color-fg-muted);
+  max-width: 520px;
+  margin: 0 auto 24px auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .vouch-ui-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .vouch-problem-grid,
+  .vouch-steps-grid,
+  .vouch-capabilities-grid {
+    grid-template-columns: 1fr;
+  }
+  .vouch-principles-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .vouch-principles-grid {
+    grid-template-columns: 1fr;
+  }
+  .vouch-ui-metrics-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 

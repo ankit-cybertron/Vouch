@@ -275,8 +275,10 @@
         <div style="font-weight:600;">Model 1 · Change Risk Attribution</div>
         <span class="gh-label gh-label-confidence">SHAP Weights</span>
       </div>
-      <div style="padding:20px;">
-        <canvas id="riskFeaturesChart" height="160" aria-label="Feature contribution chart"></canvas>
+      <div style="padding:16px 20px;">
+        <div style="position:relative; height:180px; width:100%;">
+          <canvas id="riskFeaturesChart" aria-label="Feature contribution chart"></canvas>
+        </div>
         <div style="margin-top:16px; border-top:1px solid var(--color-border-muted); padding-top:12px;">
           {% for f in pr.top_features %}
           <div style="display:flex; align-items:center; justify-content:space-between; font-size:13px; padding:4px 0;">
@@ -354,7 +356,7 @@
                         <span>{{ item.path }}{% if item.line %}:{{ item.line }}{% endif %}</span>
                       </div>
                       {% if item.diff_hunk %}
-                        <pre class="gh-diff-snippet" style="margin:0; padding:8px 10px; background:#f6f8fa; border-radius:4px; font-size:11px; overflow-x:auto; border:1px solid #e1e4e8; font-family:ui-monospace, monospace; line-height:1.4; max-width:100%; box-sizing:border-box; word-break:break-all; overflow-wrap:anywhere;"><code>{{ item.diff_hunk }}</code></pre>
+                        <pre class="gh-diff-snippet" style="margin:0; padding:8px 10px; background:var(--color-canvas-default); color:var(--color-fg-default); border-radius:4px; font-size:11px; overflow-x:auto; border:1px solid var(--color-border-default); font-family:ui-monospace, monospace; line-height:1.4; max-width:100%; box-sizing:border-box; word-break:break-all; overflow-wrap:anywhere;"><code>{{ item.diff_hunk }}</code></pre>
                       {% endif %}
                     </div>
                   {% endif %}
@@ -401,8 +403,10 @@
         <span>Reviewers</span>
       </div>
       <div class="gh-sidebar-content" style="display:flex; align-items:center; gap:8px;">
-        <img src="https://github.com/{{ pr.reviewer or 'octocat' }}.png" onerror="this.src='https://github.com/github.png'" class="gh-avatar" alt="{{ pr.reviewer }}" />
-        <strong>{{ pr.reviewer or 'None requested' }}</strong>
+        <div class="gh-avatar-stack">
+          <img src="https://github.com/{{ pr.reviewer or 'octocat' }}.png" onerror="this.src='https://github.com/github.png'" class="gh-avatar-stack-item" title="@{{ pr.reviewer or 'None' }}" alt="{{ pr.reviewer }}" />
+        </div>
+        <strong style="font-size:13px; color:var(--color-fg-default);">{{ pr.reviewer or 'None requested' }}</strong>
       </div>
     </div>
 
@@ -412,8 +416,10 @@
         <span>Assignees</span>
       </div>
       <div class="gh-sidebar-content" style="display:flex; align-items:center; gap:8px;">
-        <img src="https://github.com/{{ pr.author }}.png" onerror="this.src='https://github.com/github.png'" class="gh-avatar" alt="{{ pr.author }}" />
-        <strong>{{ pr.author }}</strong>
+        <div class="gh-avatar-stack">
+          <img src="https://github.com/{{ pr.author }}.png" onerror="this.src='https://github.com/github.png'" class="gh-avatar-stack-item" title="@{{ pr.author }}" alt="{{ pr.author }}" />
+        </div>
+        <strong style="font-size:13px; color:var(--color-fg-default);">{{ pr.author }}</strong>
       </div>
     </div>
 
@@ -538,14 +544,16 @@
           datasets: [{
             label: 'Feature Contribution',
             data: featureData.values,
-            backgroundColor: '#0969da',
+            backgroundColor: '#58a6ff',
             borderRadius: 4,
             borderSkipped: false,
+            barThickness: 14,
           }]
         },
         options: {
           indexAxis: 'y',
           responsive: true,
+          maintainAspectRatio: false,
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -558,12 +566,12 @@
           },
           scales: {
             x: {
-              grid: { color: '#eaeef2' },
-              ticks: { font: { family: '-apple-system', size: 12 }, color: '#656d76' }
+              grid: { color: '#21262d' },
+              ticks: { font: { family: 'ui-monospace, monospace', size: 11 }, color: '#8b949e' }
             },
             y: {
               grid: { display: false },
-              ticks: { font: { family: '-apple-system', size: 12 }, color: '#1f2328' }
+              ticks: { font: { family: 'ui-monospace, monospace', size: 12 }, color: '#f0f6fc' }
             }
           }
         }
