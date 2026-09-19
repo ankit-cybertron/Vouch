@@ -131,3 +131,23 @@ auth/** @security-guru @lead-dev
 # Database & migrations
 db/schema.sql @database-architect
 """
+
+
+@pytest.fixture
+def mock_github_app_auth():
+    """
+    Patch the github_app_auth singleton used inside dashboard.app.
+
+    Yields a MagicMock pre-configured as a non-configured GitHub App
+    (is_configured returns False by default).  Override in individual tests::
+
+        def test_something(client, mock_github_app_auth):
+            mock_github_app_auth.is_configured.return_value = True
+            mock_github_app_auth.get_installation_token.return_value = "ghs_fake"
+    """
+    from unittest.mock import MagicMock  # noqa: F811  # re-imported for clarity in fixture
+    mock = MagicMock()
+    mock.is_configured.return_value = False
+    with patch("dashboard.app.github_app_auth", mock), \
+         patch("dashboard.github_app.github_app_auth", mock):
+        yield mock

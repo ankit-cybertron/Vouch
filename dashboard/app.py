@@ -36,6 +36,7 @@ from flask import (
 
 from dashboard.store import get_store
 from dashboard.version import get_version_info, __version__
+from dashboard.github_app import github_app_auth
 
 store = get_store()
 
@@ -70,11 +71,25 @@ app.jinja_env.globals.update(max=max, min=min)
 def _resolve_github_token() -> str:
     """Dynamically resolve GitHub token with maximum resilience.
     Priority order:
-      1. User's active session token (from OAuth login or Option 4 token modal)
+      0. GitHub App Installation Access Token (if GITHUB_APP_ID configured +
+         session holds an installation_id) — short-lived, auto-refreshed.
+      1. User's active session token (from OAuth login or legacy token modal)
       2. Server GITHUB_TOKEN environment variable
       3. .env file
       4. git credential helper
     """
+    # Priority 0 — GitHub App Installation Access Token
+    try:
+        if has_request_context() and github_app_auth.is_configured():
+            installation_id = session.get("installation_id")
+            if installation_id:
+                try:
+                    return github_app_auth.get_installation_token(installation_id)
+                except Exception as exc:
+                    print(f"[WARN] GitHub App token fetch failed: {exc}")
+    except Exception:
+        pass
+
     try:
         if has_request_context() and session.get("github_token"):
             tok = str(session["github_token"]).strip()
@@ -86,6 +101,7 @@ def _resolve_github_token() -> str:
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if token:
         return token
+
     curr_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(curr_dir, ".env"),
@@ -1153,9 +1169,12 @@ def inject_global_vars():
 
 @app.route("/")
 def landing_page():
-    """Main Landing Page introducing Vouch, with OAuth & Demo mode entry points."""
-    # If user is already authenticated in session, route directly to repos
-    if session.get("github_token") and not request.args.get("reauth"):
+    """Main Landing Page introducing Vouch, with GitHub App install & Demo mode entry points."""
+    # If user is already authenticated (GitHub App or OAuth), route directly to repos
+    already_authed = (
+        session.get("installation_id") and github_app_auth.is_configured()
+    ) or (session.get("github_token") and not request.args.get("reauth"))
+    if already_authed and not request.args.get("reauth"):
         return redirect(url_for("repos_page"))
 
     # If a repo query param was provided directly to root, route to that repo
@@ -1177,6 +1196,9 @@ def landing_page():
     oauth_setup = request.args.get("oauth_setup") == "1"
     error = request.args.get("error")
 
+    app_configured = github_app_auth.is_configured()
+    app_install_url = os.environ.get("GITHUB_APP_INSTALL_URL", "").strip()
+    # Legacy OAuth availability (fallback when GitHub App is not configured)
     has_oauth = bool(client_id) or bool(_resolve_github_token())
 
     return render_template(
@@ -1185,6 +1207,8 @@ def landing_page():
         has_oauth=has_oauth,
         oauth_setup=oauth_setup,
         error=error,
+        app_configured=app_configured,
+        app_install_url=app_install_url,
     )
 
 
@@ -1221,7 +1245,78 @@ def repos_page():
     )
 
 
-# ── GitHub OAuth Authentication Routes ─────────────────────────
+# ── GitHub App Authentication Routes ───────────────────────────
+@app.route("/auth/github/app/install")
+def auth_github_app_install():
+    """Redirect user to GitHub App installation page."""
+    install_url = os.environ.get("GITHUB_APP_INSTALL_URL", "").strip()
+    if not install_url:
+        return redirect(url_for("landing_page", error=(
+            "GITHUB_APP_INSTALL_URL is not configured. "
+            "Set it to your GitHub App's installation URL."
+        )))
+    return redirect(install_url)
+
+
+@app.route("/auth/github/app/callback")
+def auth_github_app_callback():
+    """
+    GitHub App post-installation callback.
+
+    GitHub redirects here after a user installs (or updates) the Vouch GitHub App,
+    passing:
+      - installation_id : numeric ID of the new installation
+      - setup_action    : "install" | "update" | "request"
+      - state           : opaque CSRF token we stored in the session
+    """
+    installation_id = request.args.get("installation_id", "").strip()
+    setup_action = request.args.get("setup_action", "install")
+    state = request.args.get("state", "")
+    saved_state = session.pop("app_install_state", None)
+
+    # Validate CSRF state when we generated one
+    if saved_state and state != saved_state:
+        return redirect(url_for("landing_page", error="GitHub App installation state mismatch. Please try again."))
+
+    if not installation_id:
+        return redirect(url_for("landing_page", error="No installation_id received from GitHub."))
+
+    if not github_app_auth.is_configured():
+        return redirect(url_for("landing_page", error="GitHub App is not configured on this server."))
+
+    # Exchange installation_id for a token immediately to validate it works
+    try:
+        token = github_app_auth.get_installation_token(int(installation_id))
+        # Fetch authenticated user via /user — not available on App tokens directly,
+        # so we use /app/installations/{id} to get account metadata.
+        app_jwt = github_app_auth._build_jwt()
+        inst_resp = requests.get(
+            f"https://api.github.com/app/installations/{installation_id}",
+            headers={
+                "Authorization": f"Bearer {app_jwt}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+        account = {}
+        if inst_resp.status_code == 200:
+            account = inst_resp.json().get("account", {})
+
+        session["installation_id"] = int(installation_id)
+        session["auth_type"] = "github_app"
+        session["setup_action"] = setup_action
+        session["user_login"] = account.get("login", "github_app_user")
+        session["user_name"] = account.get("name") or account.get("login", "GitHub App")
+        session["user_avatar"] = account.get("avatar_url", "")
+        session["rate_limit"] = {"limit": 5000, "remaining": 5000}
+
+        return redirect(url_for("repos_page"))
+    except Exception as exc:
+        return redirect(url_for("landing_page", error=f"GitHub App token exchange failed: {exc}"))
+
+
+# ── GitHub OAuth Authentication Routes (legacy / fallback) ─────────────────
 @app.route("/auth/github")
 def auth_github():
     """Initiate GitHub OAuth 2.0 flow or auto-connect using configured GitHub token."""
@@ -1364,6 +1459,8 @@ def auth_github_callback():
 def auth_logout():
     """Clear user session and return to landing page."""
     session.pop("github_token", None)
+    session.pop("installation_id", None)
+    session.pop("setup_action", None)
     session.pop("user_login", None)
     session.pop("user_name", None)
     session.pop("user_avatar", None)
@@ -1372,69 +1469,12 @@ def auth_logout():
     return redirect(url_for("landing_page"))
 
 
-# ── Option 4: In-App UI Personal Token API ─────────────────────
-@app.route("/api/auth/token", methods=["POST"])
-def api_save_token():
-    """Option 4: In-App UI Personal Access Token submission."""
-    payload = request.get_json(silent=True) or {}
-    raw_token = payload.get("token", "").strip()
-    if not raw_token:
-        return jsonify({"success": False, "error": "Token cannot be empty"}), 400
-
-    try:
-        user_resp = requests.get(
-            "https://api.github.com/user",
-            headers={
-                "Authorization": f"Bearer {raw_token}",
-                "Accept": "application/vnd.github+json",
-            },
-            timeout=8,
-        )
-        if user_resp.status_code != 200:
-            return jsonify({
-                "success": False,
-                "error": "Invalid GitHub token. GitHub rejected the token (HTTP 401). Please verify permissions."
-            }), 400
-
-        user_data = user_resp.json()
-        rate_resp = requests.get(
-            "https://api.github.com/rate_limit",
-            headers={
-                "Authorization": f"Bearer {raw_token}",
-                "Accept": "application/vnd.github+json",
-            },
-            timeout=8,
-        )
-        rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
-
-        session["github_token"] = raw_token
-        session["user_login"] = user_data.get("login", "github_user")
-        session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
-        session["user_avatar"] = user_data.get("avatar_url", "")
-        session["auth_type"] = "token"
-        session["rate_limit"] = {
-            "limit": rate_data.get("limit", 5000),
-            "remaining": rate_data.get("remaining", 5000),
-        }
-
-        return jsonify({
-            "success": True,
-            "message": f"Connected as @{session['user_login']}",
-            "user": {
-                "login": session["user_login"],
-                "name": session["user_name"],
-                "avatar_url": session["user_avatar"],
-            },
-            "rate_limit": session["rate_limit"],
-        })
-    except Exception as exc:
-        return jsonify({"success": False, "error": f"Connection error: {str(exc)}"}), 500
-
-
 @app.route("/api/auth/clear-token", methods=["POST"])
 def api_clear_token():
     """Reset session to default demo mode."""
     session.pop("github_token", None)
+    session.pop("installation_id", None)
+    session.pop("setup_action", None)
     session.pop("user_login", None)
     session.pop("user_name", None)
     session.pop("user_avatar", None)
@@ -1446,10 +1486,15 @@ def api_clear_token():
 @app.route("/api/auth/status", methods=["GET"])
 def api_auth_status():
     """Return current session auth state."""
+    installation_id = session.get("installation_id")
     token = session.get("github_token")
+    authenticated = bool(installation_id) or bool(token)
+    auth_type = session.get("auth_type", "demo" if not authenticated else "token")
     return jsonify({
-        "authenticated": bool(token),
-        "auth_type": session.get("auth_type", "demo" if not token else "token"),
+        "authenticated": authenticated,
+        "auth_type": auth_type,
+        "app_configured": github_app_auth.is_configured(),
+        "installation_id": installation_id,
         "user_login": session.get("user_login", ""),
         "user_name": session.get("user_name", ""),
         "user_avatar": session.get("user_avatar", ""),
