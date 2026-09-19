@@ -2371,6 +2371,115 @@ def api_fetch_repo():
     return jsonify(result)
 
 
+@app.route("/api/explain/groq", methods=["POST"])
+def api_explain_groq():
+    """
+    Generate an on-demand LLM risk explanation using Groq API as an immediate
+    fallback while Amazon Bedrock quota access is pending approval.
+    """
+    from explain.groq_client import generate_groq_explanation
+
+    data = request.get_json(force=True, silent=True) or {}
+    pr_key = (data.get("pr_key") or "").strip()
+    user_api_key = (data.get("groq_api_key") or session.get("groq_api_key") or "").strip()
+    model = (data.get("model") or "").strip() or None
+
+    if not pr_key:
+        return jsonify({"success": False, "error": "pr_key is required."}), 400
+
+    # Store api key in session if provided
+    if user_api_key:
+        session["groq_api_key"] = user_api_key
+
+    # Resolve PR object
+    pr_obj = None
+    if pr_key in LIVE_PRS_CACHE:
+        pr_obj = LIVE_PRS_CACHE[pr_key]
+    else:
+        for k, v in LIVE_PRS_CACHE.items():
+            if k.lower() == pr_key.lower():
+                pr_obj = v
+                break
+
+    if not pr_obj and ("#" in pr_key or "/" in pr_key):
+        parts = pr_key.replace("#", "/").split("/")
+        if len(parts) >= 3:
+            owner, repo, num_str = parts[0], parts[1], parts[2]
+            try:
+                num = int(num_str)
+                pr_obj, _ = _resolve_pr_detail(owner, repo, num)
+            except Exception:
+                pass
+
+    if not pr_obj:
+        stored = store.get_prs()
+        for p in stored:
+            curr_key = p.get("pr_key") or f"{p.get('repo')}#{p.get('pr_number')}"
+            if curr_key.lower() == pr_key.lower():
+                pr_obj = p
+                break
+
+    if not pr_obj:
+        return jsonify({"success": False, "error": f"Pull request '{pr_key}' not found."}), 404
+
+    # Extract metrics for explanation prompt
+    change_risk = float(pr_obj.get("change_risk") if pr_obj.get("change_risk") is not None else 0.5)
+    review_confidence = float(pr_obj.get("review_confidence") if pr_obj.get("review_confidence") is not None else 0.5)
+    residual_risk = float(pr_obj.get("residual_risk") if pr_obj.get("residual_risk") is not None else 0.25)
+    top_features = pr_obj.get("top_features") or []
+    depth_score = float(pr_obj.get("depth_score") if pr_obj.get("depth_score") is not None else 0.5)
+    attention_state = float(pr_obj.get("attention_state") if pr_obj.get("attention_state") is not None else 1.0)
+    review_duration_seconds = int(pr_obj.get("review_duration_seconds") or 3600)
+    diff_lines = int(pr_obj.get("diff_lines") or (pr_obj.get("additions", 0) + pr_obj.get("deletions", 0)) or 100)
+    reviewer = str(pr_obj.get("reviewer") or "collaborator")
+    consecutive_reviews = int(pr_obj.get("consecutive_reviews") or 0)
+    sensitive_files = pr_obj.get("sensitive_files") or []
+    file_context = ", ".join(sensitive_files[:2]) if sensitive_files else ""
+
+    result = generate_groq_explanation(
+        pr_key=pr_key,
+        change_risk=change_risk,
+        review_confidence=review_confidence,
+        residual_risk=residual_risk,
+        top_risk_features=top_features,
+        depth_score=depth_score,
+        attention_state=attention_state,
+        review_duration_seconds=review_duration_seconds,
+        diff_lines=diff_lines,
+        reviewer=reviewer,
+        consecutive_reviews=consecutive_reviews,
+        file_context=file_context,
+        api_key=user_api_key,
+        model=model,
+    )
+
+    if result.get("success"):
+        explanation_text = result["explanation"]
+        pr_obj["bedrock_status"] = "connected"
+        pr_obj["bedrock_explanation"] = explanation_text
+        pr_obj["groq_explanation"] = explanation_text
+        pr_obj["llm_provider"] = result.get("provider", "Groq Llama 3.3")
+        _cache_scored_pr(pr_obj)
+        try:
+            store.save_pr(pr_obj)
+        except Exception:
+            pass
+
+        return jsonify({
+            "success": True,
+            "explanation": explanation_text,
+            "provider": result.get("provider", "Groq Llama 3.3"),
+            "model": result.get("model", "llama-3.3-70b-versatile"),
+        })
+    else:
+        err_str = result.get("error", "Failed to generate explanation from Groq.")
+        return jsonify({
+            "success": False,
+            "error": err_str,
+            "requires_key": "not configured" in err_str.lower() or "invalid" in err_str.lower(),
+        }), 400
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Template filters
 # ─────────────────────────────────────────────────────────────────────────────

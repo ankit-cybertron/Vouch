@@ -155,22 +155,71 @@
 
     <!-- AI Narrative Box -->
     <div class="gh-box" style="margin-bottom:20px;">
-      <div class="gh-box-header">
+      <div class="gh-box-header" style="display:flex; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:6px; font-weight:600;">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-done-fg);"><path d="M7.47 10.78a.75.75 0 0 0 1.06 0l3.75-3.75a.75.75 0 0 0-1.06-1.06L8.75 8.44V1.75a.75.75 0 0 0-1.5 0v6.69L4.78 5.97a.75.75 0 0 0-1.06 1.06l3.75 3.75Z"></path><path d="M2 13h12a1 1 0 0 1 0 2H2a1 1 0 0 1 0-2Z"></path></svg>
-          <span>Bedrock Claude 3 · Risk Narration</span>
+          <span id="ai-narration-title">
+            {% if pr.llm_provider and 'Groq' in pr.llm_provider %}
+              Groq Llama 3.3 · Risk Narration
+            {% else %}
+              Bedrock Claude 3 · Risk Narration
+            {% endif %}
+          </span>
         </div>
-        {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
-        <span class="gh-label gh-label-confidence">AWS Bedrock Claude 3</span>
-        {% else %}
-        <span class="gh-label gh-label-confidence">(disconnected)</span>
-        {% endif %}
+        <div style="display:flex; align-items:center; gap:8px;">
+          {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
+            {% if pr.llm_provider and 'Groq' in pr.llm_provider %}
+              <span class="gh-label" id="ai-narration-badge" style="background:rgba(245, 80, 54, 0.12); color:#f55036; border:1px solid rgba(245, 80, 54, 0.4); font-weight:600;">{{ pr.llm_provider }}</span>
+            {% else %}
+              <span class="gh-label gh-label-confidence" id="ai-narration-badge">AWS Bedrock Claude 3</span>
+            {% endif %}
+          {% else %}
+            <span class="gh-label gh-label-confidence" id="ai-narration-badge">(disconnected)</span>
+          {% endif %}
+        </div>
       </div>
-      <div style="padding:16px; font-size:14px; line-height:1.6; color:var(--color-fg-default); background-color:var(--color-canvas-default);">
+      <div id="ai-narration-body" style="padding:16px; font-size:14px; line-height:1.6; color:var(--color-fg-default); background-color:var(--color-canvas-default);">
         {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
-          {{ pr.bedrock_explanation }}
+          <div id="ai-narration-text" style="font-style:normal;">{{ pr.bedrock_explanation }}</div>
         {% else %}
-          <span style="color:var(--color-fg-muted); font-style:italic;">(disconnected)</span>
+          <div id="groq-fallback-panel">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="color:var(--color-fg-muted); font-style:italic;">(disconnected)</span>
+                <span style="font-size:12px; color:var(--color-fg-subtle); border-left:1px solid var(--color-border-muted); padding-left:8px;">
+                  AWS Bedrock pending approval.
+                </span>
+              </div>
+              <button type="button" id="btn-groq-explain" class="gh-btn gh-btn-sm" onclick="triggerGroqExplanation()" style="display:inline-flex; align-items:center; gap:6px; background:rgba(245,80,54,0.08); border-color:#f55036; color:#f55036; font-weight:600; cursor:pointer;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M9.504.43a1.5 1.5 0 0 1 1.264.508l4.5 5.5a1.5 1.5 0 0 1 0 1.924l-4.5 5.5a1.5 1.5 0 0 1-1.264.508H3.75A1.75 1.75 0 0 1 2 12.62V3.38C2 2.414 2.784 1.63 3.75 1.63h5.754ZM3.75 3.13a.25.25 0 0 0-.25.25v9.24c0 .138.112.25.25.25h5.754a.25.25 0 0 0 .194-.092l4.5-5.5a.25.25 0 0 0 0-.316l-4.5-5.5a.25.25 0 0 0-.194-.092H3.75Z"></path>
+                </svg>
+                <span>Explain with Groq (Fallback)</span>
+              </button>
+            </div>
+
+            <!-- Inline API key input modal/drawer (shown if GROQ_API_KEY requires entry or update) -->
+            <div id="groq-key-modal" style="display:none; margin-top:12px; padding:12px; background:var(--color-canvas-subtle); border:1px solid var(--color-border-default); border-radius:6px;">
+              <div style="font-size:12px; font-weight:600; margin-bottom:6px; color:var(--color-fg-default);">
+                Enter Groq API Key (saved for active session)
+              </div>
+              <div style="display:flex; gap:8px;">
+                <input type="password" id="groq-api-key-input" placeholder="gsk_..." class="gh-input" style="flex:1; font-family:ui-monospace, monospace; font-size:12px; padding:4px 8px; border-radius:4px; border:1px solid var(--color-border-default);" />
+                <button type="button" class="gh-btn gh-btn-primary gh-btn-sm" onclick="submitGroqKey()" style="background:#f55036; border-color:#f55036;">Generate</button>
+                <button type="button" class="gh-btn gh-btn-sm" onclick="document.getElementById('groq-key-modal').style.display='none'">Cancel</button>
+              </div>
+              <div id="groq-key-error" style="color:var(--color-danger-fg); font-size:11px; margin-top:6px; display:none;"></div>
+            </div>
+
+            <!-- Loading Spinner State -->
+            <div id="groq-loading-state" style="display:none; margin-top:12px; align-items:center; gap:8px; color:var(--color-fg-muted); font-size:13px;">
+              <svg class="gh-spin" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Z" opacity=".2"/>
+                <path fill-rule="evenodd" d="M8 0a8 8 0 0 1 8 8h-1.5A6.5 6.5 0 0 0 8 1.5V0Z"/>
+              </svg>
+              <span>Calling Groq Llama 3.3 for on-demand risk narration...</span>
+            </div>
+          </div>
         {% endif %}
       </div>
     </div>
@@ -476,5 +525,95 @@
       });
     }
   })();
+
+  function triggerGroqExplanation(apiKey) {
+    const btn = document.getElementById('btn-groq-explain');
+    const loadingState = document.getElementById('groq-loading-state');
+    const keyModal = document.getElementById('groq-key-modal');
+    const keyError = document.getElementById('groq-key-error');
+
+    if (keyError) keyError.style.display = 'none';
+    if (btn) btn.disabled = true;
+    if (loadingState) loadingState.style.display = 'flex';
+
+    const payload = {
+      pr_key: "{{ pr.pr_key or (pr.repo ~ '#' ~ pr.pr_number) }}",
+    };
+    if (apiKey) {
+      payload.groq_api_key = apiKey;
+    }
+
+    fetch('/api/explain/groq', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        const bodyEl = document.getElementById('ai-narration-body');
+        const badgeEl = document.getElementById('ai-narration-badge');
+        const titleEl = document.getElementById('ai-narration-title');
+
+        if (titleEl) titleEl.innerText = 'Groq Llama 3.3 · Risk Narration';
+        if (badgeEl) {
+          badgeEl.className = 'gh-label';
+          badgeEl.style.background = 'rgba(245, 80, 54, 0.15)';
+          badgeEl.style.color = '#f55036';
+          badgeEl.style.border = '1px solid rgba(245, 80, 54, 0.4)';
+          badgeEl.innerText = data.provider || 'Groq Llama 3.3';
+        }
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div style="font-size:14px; line-height:1.6; color:var(--color-fg-default); font-style:normal;">
+              ${data.explanation}
+            </div>
+            <div style="margin-top:12px; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--color-border-muted); padding-top:8px;">
+              <span style="font-size:11px; color:var(--color-fg-muted); font-family:ui-monospace, monospace;">
+                Generated on-demand via ${data.provider}
+              </span>
+              <button class="gh-btn gh-btn-sm" onclick="triggerGroqExplanation()" style="font-size:11px; padding:2px 8px;">
+                Re-generate
+              </button>
+            </div>
+          `;
+        }
+      } else {
+        if (btn) btn.disabled = false;
+        if (loadingState) loadingState.style.display = 'none';
+
+        if (data.requires_key || (data.error && data.error.toLowerCase().includes('key'))) {
+          if (keyModal) keyModal.style.display = 'block';
+          if (keyError) {
+            keyError.innerText = data.error || 'Groq API Key required.';
+            keyError.style.display = 'block';
+          }
+          const inputEl = document.getElementById('groq-api-key-input');
+          if (inputEl) inputEl.focus();
+        } else {
+          alert('Groq explanation error: ' + (data.error || 'Unknown error'));
+        }
+      }
+    })
+    .catch(err => {
+      if (btn) btn.disabled = false;
+      if (loadingState) loadingState.style.display = 'none';
+      alert('Request failed: ' + err.message);
+    });
+  }
+
+  function submitGroqKey() {
+    const inputEl = document.getElementById('groq-api-key-input');
+    const key = (inputEl ? inputEl.value : '').trim();
+    if (!key) {
+      const keyError = document.getElementById('groq-key-error');
+      if (keyError) {
+        keyError.innerText = 'Please enter a valid Groq API key (starts with gsk_).';
+        keyError.style.display = 'block';
+      }
+      return;
+    }
+    triggerGroqExplanation(key);
+  }
 </script>
 {% endblock %}
