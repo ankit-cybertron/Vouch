@@ -17,24 +17,24 @@ class TestGroqClient:
     def test_resolve_key_explicit(self):
         assert resolve_groq_api_key("gsk_test_123") == "gsk_test_123"
 
-    def test_missing_key_returns_clear_error(self):
-        with patch.dict("os.environ", {"GROQ_API_KEY": ""}):
-            res = generate_groq_explanation(
-                pr_key="test/repo#1",
-                change_risk=0.7,
-                review_confidence=0.2,
-                residual_risk=0.56,
-                top_risk_features=[{"feature": "sensitive_paths", "contribution": 0.3}],
-                depth_score=0.2,
-                attention_state=0.5,
-                review_duration_seconds=90,
-                diff_lines=300,
-                reviewer="alice",
-                consecutive_reviews=3,
-                api_key="",
-            )
-            assert res["success"] is False
-            assert "GROQ_API_KEY is not configured" in res["error"]
+    @patch("explain.groq_client.resolve_groq_api_key", return_value="")
+    def test_missing_key_returns_clear_error(self, mock_resolve):
+        res = generate_groq_explanation(
+            pr_key="test/repo#1",
+            change_risk=0.7,
+            review_confidence=0.2,
+            residual_risk=0.56,
+            top_risk_features=[{"feature": "sensitive_paths", "contribution": 0.3}],
+            depth_score=0.2,
+            attention_state=0.5,
+            review_duration_seconds=90,
+            diff_lines=300,
+            reviewer="alice",
+            consecutive_reviews=3,
+            api_key="",
+        )
+        assert res["success"] is False
+        assert "GROQ_API_KEY is not configured" in res["error"]
 
     @patch("explain.groq_client.requests.post")
     def test_successful_groq_generation(self, mock_post):

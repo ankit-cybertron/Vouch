@@ -1173,11 +1173,15 @@ def inject_global_vars():
         "user_avatar": session.get("user_avatar", ""),
         "rate_limit": session.get("rate_limit", {}),
     }
+    from explain.groq_client import is_groq_configured
+    groq_configured = is_groq_configured() or bool(session.get("groq_api_key"))
+
     return {
         "repos_count": len(FETCHED_REPOS),
         "all_repos": list(FETCHED_REPOS.values()),
         "auth": auth_info,
         "app_version": get_version_info(),
+        "groq_configured": groq_configured,
     }
 
 
@@ -2468,8 +2472,8 @@ def api_explain_groq():
         return jsonify({
             "success": True,
             "explanation": explanation_text,
-            "provider": result.get("provider", "Groq Llama 3.3"),
-            "model": result.get("model", "llama-3.3-70b-versatile"),
+            "provider": result.get("provider", "Groq"),
+            "model": result.get("model", "qwen/qwen3.8-27b"),
         })
     else:
         err_str = result.get("error", "Failed to generate explanation from Groq.")
