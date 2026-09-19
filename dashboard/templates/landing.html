@@ -7,7 +7,7 @@
 
 {% block content %}
 <!-- ── Minimal Dark Landing Header ───────────────────────────────── -->
-<header style="background:rgba(13, 17, 23, 0.9); backdrop-filter:blur(12px); border-bottom:1px solid var(--color-border-default); padding:14px 0; position:sticky; top:0; z-index:100; width:100%;">
+<header style="background:var(--color-header-bg, rgba(13, 17, 23, 0.9)); backdrop-filter:blur(12px); border-bottom:1px solid var(--color-border-default); padding:14px 0; position:sticky; top:0; z-index:100; width:100%;">
   <div class="vouch-header-inner" style="display:flex; align-items:center; justify-content:space-between;">
     <div style="display:flex; align-items:center; gap:24px;">
       <a href="/" style="display:flex; align-items:center; gap:8px; color:var(--color-fg-default); font-weight:700; font-size:16px; text-decoration:none;">
@@ -15,20 +15,23 @@
           <path d="M8.533.133 13.783 1.813A1.75 1.75 0 0 1 15 3.48v4.387a9.87 9.87 0 0 1-5.093 8.653.75.75 0 0 1-.72 0A9.87 9.87 0 0 1 1 7.868V3.48a1.75 1.75 0 0 1 1.217-1.667L7.467.133a1.748 1.748 0 0 1 1.066 0ZM8 1.55l-5.32 1.702a.25.25 0 0 0-.18.228v4.388c0 3.197 1.884 6.136 4.75 7.604a17.433 17.433 0 0 0 4.75-7.604V3.48a.25.25 0 0 0-.18-.228L8 1.55Zm2.78 4.67a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.75.75 0 1 1 1.06-1.06L6.5 8.94l2.97-2.97a.75.75 0 0 1 1.06 0Z"></path>
         </svg>
         <span>Vouch</span>
+        {% if app_version %}
+        <span class="gh-version-badge" title="Commit: {{ app_version.commit_short }} ({{ app_version.branch }})">v{{ app_version.version }}</span>
+        {% else %}
+        <span class="gh-version-badge">v2.1</span>
+        {% endif %}
       </a>
       <div style="display:flex; align-items:center; gap:20px; font-size:13.5px; font-weight:500;">
-        <a href="#problem" style="color:var(--color-fg-muted); text-decoration:none;">Product</a>
         <a href="#how-it-works" style="color:var(--color-fg-muted); text-decoration:none;">How it works</a>
         <a href="#capabilities" style="color:var(--color-fg-muted); text-decoration:none;">Capabilities</a>
-        <a href="https://github.com/ankit-cybertron/Vouch" target="_blank" rel="noopener noreferrer" style="color:var(--color-fg-muted); text-decoration:none;">GitHub ↗</a>
       </div>
     </div>
-    <div>
-      {% if app_configured and app_install_url %}
-      <a href="{{ app_install_url }}" class="vouch-btn-primary" style="padding:6px 14px; font-size:13px;">Connect with GitHub</a>
-      {% else %}
-      <a href="#auth-section" class="vouch-btn-primary" style="padding:6px 14px; font-size:13px;">Connect with GitHub</a>
-      {% endif %}
+    <div style="display:flex; align-items:center; gap:10px;">
+      <button type="button" class="gh-btn gh-btn-sm theme-toggle-btn" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme (Light / Dark)" style="padding:5px 10px; display:inline-flex; align-items:center; justify-content:center;">
+        <svg class="sun-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="display:none;"><path d="M8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm5.25-2.5a.75.75 0 0 1 .75-.75h1a.75.75 0 0 1 0 1.5h-1a.75.75 0 0 1-.75-.75Zm-12 0a.75.75 0 0 1 .75-.75h1a.75.75 0 0 1 0 1.5h-1a.75.75 0 0 1-.75-.75Zm9.192-4.243a.75.75 0 0 1 1.06 0l.708.707a.75.75 0 0 1-1.061 1.061l-.707-.707a.75.75 0 0 1 0-1.061ZM2.55 12.394a.75.75 0 0 1 1.06 0l.708.707a.75.75 0 0 1-1.061 1.061l-.707-.707a.75.75 0 0 1 0-1.061Zm9.899 4.243a.75.75 0 0 1 0 1.06l-.707.708a.75.75 0 0 1-1.061-1.061l.707-.707a.75.75 0 0 1 1.061 0ZM3.257 3.257a.75.75 0 0 1 0 1.06l-.707.708A.75.75 0 1 1 1.489 3.964l.707-.707a.75.75 0 0 1 1.061 0ZM8 0a.75.75 0 0 1 .75.75v1a.75.75 0 0 1-1.5 0v-1A.75.75 0 0 1 8 0Zm0 13.25a.75.75 0 0 1 .75.75v1a.75.75 0 0 1-1.5 0v-1a.75.75 0 0 1 .75-.75Z"></path></svg>
+        <svg class="moon-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.75.75 0 0 1 .785.175 7 7 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Z"></path></svg>
+      </button>
+
     </div>
   </div>
 </header>
@@ -186,7 +189,7 @@
           </form>
 
           <div class="gh-auth-footer-link">
-            <a href="/repos">
+            <a href="/repos" class="gh-auth-demo-btn">
               Explore sample repositories in Demo Mode →
             </a>
           </div>
@@ -195,132 +198,7 @@
 
     </div>
 
-    <!-- REALISTIC VOUCH PRODUCT INTERFACE HERO MOCKUP -->
-    <div class="vouch-ui-card">
-      <div class="vouch-ui-card-header">
-        <div class="vouch-ui-pr-meta">
-          <span class="vouch-ui-pr-tag">PR #1842</span>
-          <div>
-            <div class="vouch-ui-pr-title">Payment reconciliation changes</div>
-            <div class="vouch-ui-pr-sub">payments-service · +450 / -120 lines across 3 sensitive files</div>
-          </div>
-        </div>
-        <div class="vouch-badge vouch-badge-medium">
-          <span>● Medium Residual Risk</span>
-        </div>
-      </div>
 
-      <div class="vouch-ui-card-body">
-        <div class="vouch-ui-metrics-grid">
-          <div class="vouch-metric-box">
-            <span class="vouch-metric-label">Risk Level</span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-badge vouch-badge-medium">MEDIUM</span>
-            </div>
-          </div>
-          <div class="vouch-metric-box">
-            <span class="vouch-metric-label">Residual Risk</span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-metric-num" style="color:var(--color-attention-fg);">37</span>
-              <span style="font-size:12px; color:var(--color-fg-muted);">/ 100</span>
-            </div>
-          </div>
-          <div class="vouch-metric-box">
-            <span class="vouch-metric-label">Review Depth</span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-badge vouch-badge-high">SHALLOW</span>
-            </div>
-          </div>
-          <div class="vouch-metric-box">
-            <span class="vouch-metric-label">Reviewer Attention</span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-badge vouch-badge-high">LOW</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Key Findings -->
-        <div class="vouch-findings-block">
-          <div class="vouch-findings-title">Key Findings</div>
-          <div class="vouch-findings-list">
-            <div class="vouch-finding-item">
-              <span class="vouch-finding-bullet">!</span>
-              <span><strong>Critical payment path modified:</strong> <code>/services/billing/reconcile.go</code> contains core transaction ledger updates.</span>
-            </div>
-            <div class="vouch-finding-item">
-              <span class="vouch-finding-bullet">!</span>
-              <span><strong>Reviewer coverage limited:</strong> 1 reviewer assigned for 570 lines of high-impact changes.</span>
-            </div>
-            <div class="vouch-finding-item">
-              <span class="vouch-finding-bullet">!</span>
-              <span><strong>Shallow review activity:</strong> Approved in 42 seconds with no inline technical comments.</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Footer Stats Bar -->
-        <div class="vouch-ui-footer-bar">
-          <div class="vouch-ui-stats-inline">
-            <div class="vouch-ui-stat-item">
-              <strong>2</strong> reviewers
-            </div>
-            <div class="vouch-ui-stat-item">
-              <strong>14</strong> comments
-            </div>
-            <div class="vouch-ui-stat-item">
-              <strong>3</strong> files changed
-            </div>
-          </div>
-          <div style="font-weight:600; color:var(--color-attention-fg);">
-            1 unresolved finding
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── 2. PROBLEM SECTION ───────────────────────────────────── -->
-  <section class="vouch-section" id="problem">
-    <div class="vouch-section-header">
-      <span class="vouch-section-kicker">The Code Review Problem</span>
-      <h2 class="vouch-section-title">Approval doesn't always mean thorough review.</h2>
-      <p class="vouch-section-sub">
-        Traditional CI/CD pipelines verify that code compiles and tests pass. But when senior engineers face review fatigue, high-risk pull requests get rubber-stamped without deep scrutiny.
-      </p>
-    </div>
-
-    <div class="vouch-problem-grid">
-      <!-- Rubber Stamp Card -->
-      <div class="vouch-problem-card danger-border">
-        <div class="vouch-problem-card-header">
-          <span class="vouch-badge vouch-badge-high">🚨 Rubber-Stamp Review</span>
-          <span style="font-size:12px; font-weight:600; color:var(--color-danger-fg);">High Residual Risk</span>
-        </div>
-        <div class="vouch-problem-math">
-          <code>0.90 × (1 − 0.10) = <strong style="color:var(--color-danger-fg);">0.81</strong></code>
-        </div>
-        <div class="vouch-problem-title" style="margin-bottom:8px;">High Change Risk + Shallow Scrutiny</div>
-        <p class="vouch-problem-desc">
-          800 lines changed in security layer, approved in 45 seconds with a single "LGTM" comment. High probability of silent defect spill.
-        </p>
-      </div>
-
-      <!-- Deep Review Card -->
-      <div class="vouch-problem-card success-border">
-        <div class="vouch-problem-card-header">
-          <span class="vouch-badge vouch-badge-passed">✅ Deep Technical Review</span>
-          <span style="font-size:12px; font-weight:600; color:var(--color-success-fg);">Low Residual Risk</span>
-        </div>
-        <div class="vouch-problem-math">
-          <code>0.90 × (1 − 0.90) = <strong style="color:var(--color-success-fg);">0.09</strong></code>
-        </div>
-        <div class="vouch-problem-title" style="margin-bottom:8px;">High Change Risk + Deep Scrutiny</div>
-        <p class="vouch-problem-desc">
-          Same 800 lines changed, but 3 senior reviewers spent 45 minutes posting 14 substantive technical comments. Residual risk is safe.
-        </p>
-      </div>
-    </div>
-  </section>
 
   <!-- ── 3. HOW VOUCH WORKS SECTION ───────────────────────────── -->
   <section class="vouch-section" id="how-it-works">
@@ -524,57 +402,7 @@
     </div>
   </section>
 
-  <!-- ── 6. ENGINEERING PRINCIPLES SECTION ────────────────────── -->
-  <section class="vouch-section" id="principles">
-    <div class="vouch-section-header">
-      <span class="vouch-section-kicker">Design Philosophy</span>
-      <h2 class="vouch-section-title">Built for engineering teams</h2>
-      <p class="vouch-section-sub">
-        Designed to fit into existing developer infrastructure without adding friction.
-      </p>
-    </div>
 
-    <div class="vouch-principles-grid">
-      <div class="vouch-principle-card">
-        <h3 class="vouch-principle-title">GitHub-Native</h3>
-        <p class="vouch-principle-desc">Integrates seamlessly via GitHub App webhooks and fine-grained repository permissions.</p>
-      </div>
-      <div class="vouch-principle-card">
-        <h3 class="vouch-principle-title">Explainable Signals</h3>
-        <p class="vouch-principle-desc">No opaque scores. Every risk rating is supported by readable diff metrics and comment analysis.</p>
-      </div>
-      <div class="vouch-principle-card">
-        <h3 class="vouch-principle-title">Review-Focused</h3>
-        <p class="vouch-principle-desc">Augments human code review to highlight unscrutinized high-risk modifications.</p>
-      </div>
-      <div class="vouch-principle-card">
-        <h3 class="vouch-principle-title">Existing Workflows</h3>
-        <p class="vouch-principle-desc">Fits naturally alongside your existing pull request, queueing, and triage procedures.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── 7. FINAL CTA BOX ──────────────────────────────────────── -->
-  <div class="vouch-cta-box">
-    <h2 class="vouch-cta-title">See what remains after review.</h2>
-    <p class="vouch-cta-sub">
-      Connect your GitHub account to start scoring review confidence and residual risk across your repositories.
-    </p>
-    <div class="vouch-hero-cta-group">
-      {% if app_configured and app_install_url %}
-      <a href="{{ app_install_url }}" class="vouch-btn-primary">
-        <span>Connect with GitHub</span>
-      </a>
-      {% else %}
-      <a href="#auth-section" class="vouch-btn-primary">
-        <span>Connect with GitHub</span>
-      </a>
-      {% endif %}
-      <a href="/repos" class="vouch-btn-secondary">
-        <span>Explore demo</span>
-      </a>
-    </div>
-  </div>
 
   <!-- ── 8. MINIMAL DEVELOPER FOOTER ─────────────────────────── -->
   <footer style="border-top:1px solid var(--color-border-default); padding:40px 0; margin-top:60px; font-size:13px; color:var(--color-fg-muted); width:100%;">
@@ -584,10 +412,8 @@
         <span>· Code Review Intelligence for GitHub</span>
       </div>
       <div style="display:flex; align-items:center; gap:20px;">
-        <a href="#problem" style="color:var(--color-fg-muted); text-decoration:none;">Product</a>
         <a href="#how-it-works" style="color:var(--color-fg-muted); text-decoration:none;">How it works</a>
         <a href="#capabilities" style="color:var(--color-fg-muted); text-decoration:none;">Capabilities</a>
-        <a href="https://github.com/ankit-cybertron/Vouch" target="_blank" rel="noopener noreferrer" style="color:var(--color-fg-muted); text-decoration:none;">GitHub ↗</a>
       </div>
     </div>
   </footer>
