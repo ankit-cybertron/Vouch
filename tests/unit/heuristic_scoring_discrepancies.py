@@ -209,3 +209,120 @@ class TestBedrockDisconnectedState:
             )
             # Must show (disconnected)
             assert "(disconnected)" in html
+
+
+class TestTriStateAndDataSync:
+    """Verify tri-state classification (open, merged, closed unmerged) and data synchronization."""
+
+    def test_closed_unmerged_pr_not_penalized_for_missing_review(self):
+        pr = {
+            "number": 501,
+            "additions": 400,
+            "deletions": 50,
+            "changed_files": 4,
+            "state": "closed",
+            "merged_at": None,
+            "closed_at": "2026-09-18T12:00:00Z",
+            "is_merged": False,
+            "user": {"login": "contributor_bob"},
+        }
+        scored = _score_pr_heuristic(pr, reviews=[], comments=[])
+        assert scored["is_merged"] is False
+        assert scored["merged_at"] is None
+        assert scored["closed_at"] == "2026-09-18T12:00:00Z"
+        assert "closed without merging" in scored["explanation"]
+        # Attention state should not suffer unreviewed-merge penalty
+        assert scored["attention_state"] >= 0.65
+
+    def test_unassigned_reviewer_does_not_default_to_collaborator(self):
+        pr = {
+            "number": 502,
+            "additions": 50,
+            "deletions": 5,
+            "changed_files": 1,
+            "state": "open",
+            "user": {"login": "solo_coder"},
+        }
+        scored = _score_pr_heuristic(pr, reviews=[], comments=[])
+        assert scored["reviewer"] in ("", None)
+        assert scored["reviewer"] != "collaborator"
+
+    def test_resolve_pr_detail_reuses_cached_scores(self):
+        from dashboard.app import _resolve_pr_detail, REPO_PRS_CACHE
+        repo_key = "testorg/testrepo"
+        pr_number = 777
+        REPO_PRS_CACHE[repo_key] = [{
+            "repo": repo_key,
+            "pr_number": pr_number,
+            "title": "Cached and synced PR",
+            "author": "sync_user",
+            "reviewer": "trusted_reviewer",
+            "state": "closed",
+            "is_merged": True,
+            "merged_at": "2026-09-19T10:00:00Z",
+            "change_risk": 0.09,
+            "review_confidence": 0.88,
+            "residual_risk": 0.01,
+            "risk_tier": "low",
+            "confidence_pct": 88,
+            "residual_pct": 1,
+            "scored": True,
+        }]
+
+        detail, status_code = _resolve_pr_detail("testorg", "testrepo", pr_number)
+        assert status_code == 200
+        assert detail is not None
+        assert detail["residual_risk"] == 0.01
+        assert detail["change_risk"] == 0.09
+        assert detail["review_confidence"] == 0.88
+        assert detail["reviewer"] == "trusted_reviewer"
+        del REPO_PRS_CACHE[repo_key]
+
+    def test_all_candidates_scored_without_arbitrary_unscored_cap(self, monkeypatch):
+        from dashboard.app import _fetch_and_score_repo, REPO_PRS_CACHE, FETCHED_REPOS
+
+        # Mock 50 PR candidates (20 open, 11 merged, 19 closed unmerged)
+        fake_candidates = []
+        for i in range(1, 51):
+            if i <= 20:
+                st, m_at, c_at, is_m = "open", None, None, False
+            elif i <= 31:
+                st, m_at, c_at, is_m = "closed", "2026-08-01T12:00:00Z", "2026-08-01T12:00:00Z", True
+            else:
+                st, m_at, c_at, is_m = "closed", None, "2026-08-01T12:00:00Z", False
+            fake_candidates.append({
+                "number": i,
+                "title": f"Candidate PR #{i}",
+                "state": st,
+                "created_at": "2026-08-01T10:00:00Z",
+                "merged_at": m_at,
+                "closed_at": c_at,
+                "is_merged": is_m,
+                "user": {"login": f"user{i}"},
+                "additions": 100,
+                "deletions": 20,
+                "changed_files": 3,
+            })
+
+        def fake_github_get(url, params=None):
+            if "/repos/testorg/syncrepo/pulls" in url:
+                if params and params.get("state") == "open":
+                    return [c for c in fake_candidates if c["state"] == "open"]
+                else:
+                    return [c for c in fake_candidates if c["state"] == "closed"]
+            if "/repos/testorg/syncrepo" in url and "/pulls/" not in url:
+                return {"full_name": "testorg/syncrepo", "stargazers_count": 10, "forks_count": 2, "language": "Python"}
+            return []
+
+        monkeypatch.setattr("dashboard.app._github_get", fake_github_get)
+        res = _fetch_and_score_repo("testorg", "syncrepo", limit=50, force_refresh=True)
+
+        assert res is not None
+        prs = res["prs"]
+        assert len(prs) == 50
+        # Every single candidate must be scored - no arbitrary 33 vs 50 cap!
+        assert all(p.get("scored") is True for p in prs)
+        assert all(p.get("residual_risk") is not None for p in prs)
+        assert res["stats"]["total_scored"] == 50
+        assert res["stats"]["total_prs"] == 50
+

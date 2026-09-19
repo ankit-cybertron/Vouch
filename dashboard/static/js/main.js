@@ -22,7 +22,8 @@
   const cardCount = document.getElementById('card-count');
   const statTotal = document.getElementById('stat-total');
   const statFlagged = document.getElementById('stat-flagged');
-  const statRequeued = document.getElementById('stat-requeued');
+  const statMedium = document.getElementById('stat-medium') || document.getElementById('stat-requeued');
+  const statRequeued = statMedium;
   const statAvg = document.getElementById('stat-avg');
 
   // Helper: check if a string looks like a GitHub repo (owner/repo or URL)
@@ -211,9 +212,9 @@
 
       // Update KPIs
       if (data.stats) {
-        if (statTotal) statTotal.textContent = data.stats.total_scored;
-        if (statFlagged) statFlagged.textContent = data.stats.high_risk_flagged;
-        if (statRequeued) statRequeued.textContent = data.stats.requeued_today;
+        if (statTotal) statTotal.textContent = data.stats.total_prs || data.stats.total_scored;
+        if (statFlagged) statFlagged.textContent = data.stats.high_risk_flagged || 0;
+        if (statMedium) statMedium.textContent = data.stats.medium_risk_count !== undefined ? data.stats.medium_risk_count : (data.stats.requeued_today || 0);
         if (statAvg) statAvg.textContent = Number(data.stats.avg_residual_risk).toFixed(2);
       }
 

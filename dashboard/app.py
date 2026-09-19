@@ -68,11 +68,15 @@ def _compute_board_stats(prs: list[dict] | None = None) -> dict:
         prs = list(LIVE_PRS_CACHE.values()) if "LIVE_PRS_CACHE" in globals() else []
     total = len(prs)
     high_risk = sum(1 for p in prs if p.get("risk_tier") == "high")
-    requeued = sum(1 for p in prs if p.get("residual_risk", 0) >= 0.65)
-    avg_res = round(sum(p.get("residual_risk", 0) for p in prs) / max(total, 1), 2)
+    medium_risk = sum(1 for p in prs if p.get("risk_tier") == "medium")
+    requeued = sum(1 for p in prs if (p.get("residual_risk") or 0) >= 0.65)
+    scored_prs = [p for p in prs if p.get("residual_risk") is not None]
+    avg_res = round(sum(p["residual_risk"] for p in scored_prs) / max(len(scored_prs), 1), 2) if scored_prs else 0.0
     return {
         "total_scored": total,
+        "total_prs": total,
         "high_risk_flagged": high_risk,
+        "medium_risk_count": medium_risk,
         "requeued_today": requeued,
         "avg_residual_risk": avg_res,
         "precision_at_20": f"{min(requeued, 9)}/20" if total else "0/20",
@@ -347,7 +351,24 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     repo_full = pr_data.get("_repo") or pr_data.get("repo", "")
     state = pr_data.get("state", "open")
     created_at = pr_data.get("created_at", "")
-    merged_at = pr_data.get("merged_at") or pr_data.get("closed_at")
+    raw_merged_at = pr_data.get("merged_at")
+    raw_closed_at = pr_data.get("closed_at")
+    if raw_merged_at or pr_data.get("merged") is True or pr_data.get("is_merged") is True:
+        is_merged = True
+    elif pr_data.get("merged") is False or pr_data.get("is_merged") is False:
+        is_merged = False
+    elif raw_closed_at and not raw_merged_at:
+        # Real GitHub PR closed without merging has closed_at set and merged_at is null/None
+        is_merged = False
+    elif state == "closed":
+        # Backward compatibility for mock objects without closed_at or merged_at
+        is_merged = True
+    else:
+        is_merged = False
+
+    merged_at = raw_merged_at if is_merged else None
+    closed_at = raw_closed_at
+    is_closed_unmerged = (state == "closed" and not is_merged)
     pr_title = (pr_data.get("title") or "").strip()
     pr_body = (pr_data.get("body") or "").strip()
     pr_author = (pr_data.get("user") or {}).get("login", "unknown")
@@ -355,10 +376,11 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     # Review duration
     review_duration_seconds = pr_data.get("_duration_secs", 0)
     if not review_duration_seconds:
-        if created_at and merged_at:
+        end_time_str = merged_at or closed_at
+        if created_at and end_time_str:
             try:
                 t0 = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                t1 = datetime.fromisoformat(merged_at.replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
                 review_duration_seconds = max(int((t1 - t0).total_seconds()), 1)
             except Exception:
                 review_duration_seconds = 3600
@@ -417,24 +439,49 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     # Reviewer resolution
     reviewer = pr_data.get("_sim_reviewer") or pr_data.get("reviewer") or ""
     if not reviewer and reviews:
-        reviewer = reviews[0].get("user", {}).get("login", "")
-    elif not reviewer and pr_data.get("requested_reviewers"):
+        # Prioritize an approved review first
+        for rv in reviews:
+            if rv.get("state") == "APPROVED":
+                rev_user = rv.get("user", {}).get("login", "")
+                if rev_user and not (rev_user.endswith("[bot]") or rev_user.endswith("-bot")):
+                    reviewer = rev_user
+                    break
+        if not reviewer:
+            for rv in reviews:
+                rev_user = rv.get("user", {}).get("login", "")
+                if rev_user and not (rev_user.endswith("[bot]") or rev_user.endswith("-bot")):
+                    reviewer = rev_user
+                    break
+        if not reviewer and reviews:
+            reviewer = reviews[0].get("user", {}).get("login", "")
+    if not reviewer and pr_data.get("requested_reviewers"):
         reviewer = pr_data["requested_reviewers"][0].get("login", "")
+    if not reviewer and pr_data.get("assignees"):
+        for a in pr_data["assignees"]:
+            if a.get("login") and a.get("login") != pr_author:
+                reviewer = a.get("login")
+                break
     if not reviewer:
-        reviewer = (pr_data.get("assignee") or {}).get("login", "") or "collaborator"
+        reviewer = (pr_data.get("assignee") or {}).get("login", "")
+    if not reviewer and pr_data.get("merged_by"):
+        mb = (pr_data.get("merged_by") or {}).get("login", "")
+        if mb and mb != pr_author:
+            reviewer = mb
+    if reviewer == "collaborator":
+        reviewer = ""
 
     # ─────────────────────────────────────────────────────────────────
     # Discrepancy signals (used by all three models)
     # ─────────────────────────────────────────────────────────────────
 
     # Signal: no meaningful reviewer assigned
-    no_reviewer = (reviewer in ("", "collaborator") and not reviews)
+    no_reviewer = (not reviewer and not reviews)
 
     # Signal: rapid merge — merged < 10 minutes after opening
     rapid_merge = (
         review_duration_seconds > 0
         and review_duration_seconds < 600
-        and state == "closed"
+        and is_merged
     )
 
     # Signal: stale PR — open for > 30 days (complacency / context loss)
@@ -442,7 +489,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
 
     # Signal: WIP/DO-NOT-MERGE in title but merged
     wip_pattern = re.compile(r"\b(wip|do\s*not\s*merge|draft|dnm|blocked|hold)\b", re.I)
-    wip_not_draft = bool(wip_pattern.search(pr_title) and state == "closed")
+    wip_not_draft = bool(wip_pattern.search(pr_title) and is_merged)
 
     # Signal: mass file touch — shotgun commit touching > 15 files
     mass_file_touch = changed_files > 15
@@ -451,8 +498,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     empty_description = len(pr_body) < 30 and total_lines > 100
 
     # Signal: self-review — author and reviewer share the same login
-    self_review = bool(reviewer and reviewer.lower() == pr_author.lower()
-                       and reviewer != "collaborator")
+    self_review = bool(reviewer and pr_author and reviewer.lower() == pr_author.lower())
 
     # AI authorship signal (from commit message or body)
     ai_pattern = re.compile(
@@ -646,11 +692,14 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         substantive_ratio = max(len(reviews) - rubber_stamp_count, 0) / total_reviews if reviews else 0.0
 
         # Depth from review events
-        if not reviews:
+        if is_closed_unmerged:
+            # PR closed without merging: lack of deep review is expected since code was abandoned/rejected
+            depth_from_reviews = 0.50
+        elif not reviews:
             depth_from_reviews = 0.05
         elif all_bots and reviews:
             depth_from_reviews = 0.05
-        elif has_changes_requested and state == "closed":
+        elif has_changes_requested and is_merged:
             depth_from_reviews = max(substantive_ratio * 0.50, 0.05)
         elif has_dismissed and has_approvals:
             depth_from_reviews = max(substantive_ratio * 0.60, 0.10)
@@ -672,7 +721,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
             + 0.20 * comment_depth_score,
             4
         )
-        if has_changes_requested and state == "closed":
+        if has_changes_requested and is_merged:
             depth_score = round(max(depth_score - 0.20, 0.02), 4)
         depth_score = round(max(min(depth_score, 1.0), 0.0), 4)
 
@@ -696,14 +745,15 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
             attention_state -= 0.15
         if is_weekend_merge and sensitive_count > 0:
             attention_state -= 0.10
-        if not reviews:
-            attention_state -= 0.30
-        if rapid_merge:
-            attention_state -= 0.25
-        if self_review:
-            attention_state -= 0.30
-        if stale_pr:
-            attention_state -= 0.08
+        if not is_closed_unmerged:
+            if not reviews:
+                attention_state -= 0.30
+            if rapid_merge:
+                attention_state -= 0.25
+            if self_review:
+                attention_state -= 0.30
+            if stale_pr:
+                attention_state -= 0.08
 
         attention_state = round(max(0.04, min(1.0, attention_state)), 4)
 
@@ -755,8 +805,13 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     if not sim_profile:
         if rubber_stamp_count > 0:
             _findings.append(f"{rubber_stamp_count} rubber-stamp approval(s)")
-        if has_changes_requested and state == "closed":
-            _findings.append("merged with pending change requests")
+        if has_changes_requested:
+            if is_merged:
+                _findings.append("merged with pending change requests")
+            else:
+                _findings.append("changes requested, unmerged")
+        elif is_closed_unmerged:
+            _findings.append("closed without merging")
     _finding_str = "; ".join(_findings) if _findings else "standard change"
 
     if state == "open":
@@ -776,6 +831,11 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
                 f"Active PR #{pr_number}: {total_lines}-line diff open for {dur_str} ({_finding_str}). "
                 f"Residual risk {residual_risk:.2f} is low — review depth is within safety bounds."
             )
+    elif is_closed_unmerged:
+        explanation = (
+            f"Closed PR #{pr_number}: {total_lines}-line diff ({_finding_str}) "
+            f"closed without merging on {dur_str}. No production deployment risk."
+        )
     else:
         if re_queued:
             explanation = (
@@ -860,7 +920,9 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         "author": pr_author,
         "reviewer": reviewer,
         "created_at": created_at,
-        "merged_at": merged_at if state == "closed" else None,
+        "merged_at": merged_at,
+        "closed_at": closed_at,
+        "is_merged": is_merged,
         "state": state,
         "scored": True,
         "change_risk": change_risk,
@@ -940,6 +1002,7 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         scored_only = [p for p in cached_prs if p.get("scored") and p.get("residual_risk") is not None]
         total_scored = len(scored_only)
         high_count = sum(1 for p in scored_only if p.get("risk_tier") == "high")
+        medium_count = sum(1 for p in scored_only if p.get("risk_tier") == "medium")
         requeued_count = sum(1 for p in scored_only if p.get("re_queued"))
         avg_res = (sum(p["residual_risk"] for p in scored_only) / total_scored) if total_scored > 0 else 0.0
         return {
@@ -948,7 +1011,9 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
             "repo_meta": FETCHED_REPOS[full_repo_name],
             "stats": {
                 "total_scored": total_scored,
+                "total_prs": len(cached_prs),
                 "high_risk_flagged": high_count,
+                "medium_risk_count": medium_count,
                 "requeued_today": requeued_count,
                 "avg_residual_risk": round(avg_res, 2),
             }
@@ -1013,82 +1078,50 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         reverse=True
     )
 
-    # 5. Determine initial scoring window: max(25, count of PRs in the last 30 days)
-    count_30_days = sum(1 for c in candidates if _is_within_30_days(c.get("created_at") or c.get("updated_at")))
-    target_scored_count = max(25, count_30_days)
-
-    # 6. Process candidate PRs in parallel for ultra-fast response
+    # 5. Process all candidate PRs in parallel for ultra-fast response and 100% synchronized model scores
     def _process_candidate(item):
         idx, pr = item
         num = pr.get("number")
         if not num:
             return None
 
-        if idx < target_scored_count:
-            full_pr = dict(pr)
-            if not rate_limited and "additions" not in pr:
-                single_detail = _github_get(f"{base}/pulls/{num}")
-                if isinstance(single_detail, dict) and not single_detail.get("_rate_limit_exceeded"):
-                    full_pr.update(single_detail)
+        full_pr = dict(pr)
+        if not rate_limited and "additions" not in pr:
+            single_detail = _github_get(f"{base}/pulls/{num}")
+            if isinstance(single_detail, dict) and not single_detail.get("_rate_limit_exceeded"):
+                full_pr.update(single_detail)
 
-            full_pr["_repo"] = full_repo_name
+        full_pr["_repo"] = full_repo_name
 
-            reviews = []
-            comments = []
-            if not rate_limited:
-                r_resp = _github_get(f"{base}/pulls/{num}/reviews") or []
-                if isinstance(r_resp, list):
-                    reviews = r_resp
-                c_resp = _github_get(f"{base}/pulls/{num}/comments") or []
-                if isinstance(c_resp, list):
-                    comments = c_resp
+        reviews = []
+        comments = []
+        if not rate_limited:
+            r_resp = _github_get(f"{base}/pulls/{num}/reviews") or []
+            if isinstance(r_resp, list):
+                reviews = r_resp
+            c_resp = _github_get(f"{base}/pulls/{num}/comments") or []
+            if isinstance(c_resp, list):
+                comments = c_resp
 
-            scored_item = _score_pr_heuristic(full_pr, reviews, comments)
-            scored_item["scored"] = True
-            return scored_item
-        else:
-            total_lines = pr.get("additions", 0) + pr.get("deletions", 0) or 150
-            unscored_item = {
-                "pr_key": f"{full_repo_name}#{num}",
-                "pr_url": pr.get("html_url", f"https://github.com/{owner}/{repo}/pull/{num}"),
-                "repo": full_repo_name,
-                "pr_number": num,
-                "title": pr.get("title", f"Pull request #{num}"),
-                "author": (pr.get("user") or {}).get("login", "collaborator"),
-                "reviewer": "collaborator",
-                "created_at": pr.get("created_at") or "2026-06-01T12:00:00Z",
-                "merged_at": pr.get("merged_at") if pr.get("state") == "closed" else None,
-                "state": pr.get("state", "closed"),
-                "change_risk": None,
-                "review_confidence": None,
-                "residual_risk": None,
-                "risk_tier": "unscored",
-                "confidence_pct": None,
-                "residual_pct": None,
-                "diff_lines": total_lines,
-                "changed_files": pr.get("changed_files", 2),
-                "sensitive_files": [f["filename"] for f in (pr.get("_files") or []) if "filename" in f][:3],
-                "comments": [],
-                "scored": False,
-                "status": "pending_analysis",
-                "explanation": "Older pull request cataloged for on-demand analysis.",
-            }
-            _cache_scored_pr(unscored_item)
-            return unscored_item
+        scored_item = _score_pr_heuristic(full_pr, reviews, comments)
+        scored_item["scored"] = True
+        _cache_scored_pr(scored_item)
+        return scored_item
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         all_prs = [p for p in pool.map(_process_candidate, enumerate(candidates[:limit])) if p is not None]
 
+    # Order all PRs chronologically descending so newest PRs appear at the top ("above")
+    def _pr_sort_key(p):
+        return (p.get("created_at") or "", p.get("pr_number") or 0)
 
-    # Sort so scored PRs are ordered descending by residual risk, followed by unscored older PRs
+    all_prs.sort(key=_pr_sort_key, reverse=True)
     scored_prs = [p for p in all_prs if p.get("scored") and p.get("residual_risk") is not None]
-    unscored_prs = [p for p in all_prs if not p.get("scored") or p.get("residual_risk") is None]
-    scored_prs.sort(key=lambda x: x.get("residual_risk", 0.0), reverse=True)
-    all_prs = scored_prs + unscored_prs
 
     # Compute repository stats
     total_scored = len(scored_prs)
     high_count = sum(1 for p in scored_prs if p.get("risk_tier") == "high")
+    medium_count = sum(1 for p in scored_prs if p.get("risk_tier") == "medium")
     requeued_count = sum(1 for p in scored_prs if p.get("re_queued"))
     avg_res = (sum(p["residual_risk"] for p in scored_prs) / total_scored) if total_scored > 0 else 0.0
 
@@ -1096,6 +1129,7 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         "total_scored": total_scored,
         "total_prs": len(all_prs),
         "high_risk_flagged": high_count,
+        "medium_risk_count": medium_count,
         "requeued_today": requeued_count,
         "avg_residual_risk": round(avg_res, 2),
     }
@@ -1741,6 +1775,16 @@ def repo_view(owner: str, repo_name: str):
         try:
             prs_from_store = store.get_prs(repo=full_name)
             if prs_from_store:
+                for idx, p in enumerate(prs_from_store):
+                    if not p.get("scored") or p.get("residual_risk") is None:
+                        scored_p = _score_pr_heuristic(p, p.get("_reviews") or p.get("reviews") or [], p.get("_comments") or p.get("comments") or [])
+                        scored_p["scored"] = True
+                        _cache_scored_pr(scored_p)
+                        prs_from_store[idx] = scored_p
+                        try:
+                            store.save_pr(scored_p)
+                        except Exception:
+                            pass
                 REPO_PRS_CACHE[full_name.lower()] = prs_from_store
                 stored_repos = store.get_repos()
                 if full_name in stored_repos:
@@ -1751,19 +1795,37 @@ def repo_view(owner: str, repo_name: str):
     # Use cached or fetch & score
     if full_name.lower() in REPO_PRS_CACHE and full_name in FETCHED_REPOS:
         prs = list(REPO_PRS_CACHE[full_name.lower()])
+        cache_updated = False
+        for idx, p in enumerate(prs):
+            if not p.get("scored") or p.get("residual_risk") is None:
+                scored_p = _score_pr_heuristic(p, p.get("_reviews") or p.get("reviews") or [], p.get("_comments") or p.get("comments") or [])
+                scored_p["scored"] = True
+                _cache_scored_pr(scored_p)
+                prs[idx] = scored_p
+                cache_updated = True
+                try:
+                    store.save_pr(scored_p)
+                except Exception:
+                    pass
+        if cache_updated:
+            REPO_PRS_CACHE[full_name.lower()] = prs
+
         current_repo_meta = FETCHED_REPOS[full_name]
         scored_only = [p for p in prs if p.get("scored") and p.get("residual_risk") is not None]
         total = len(scored_only)
         high_count = sum(1 for p in scored_only if p.get("risk_tier") == "high")
+        medium_count = sum(1 for p in scored_only if p.get("risk_tier") == "medium")
         requeued_count = sum(1 for p in scored_only if p.get("re_queued"))
         avg_res = (sum(p["residual_risk"] for p in scored_only) / total) if total > 0 else 0.0
         stats = {
             "total_scored": total,
             "total_prs": len(prs),
             "high_risk_flagged": high_count,
+            "medium_risk_count": medium_count,
             "requeued_today": requeued_count,
             "avg_residual_risk": round(avg_res, 2),
         }
+        FETCHED_REPOS[full_name]["avg_residual_risk"] = stats["avg_residual_risk"]
     else:
         result = _fetch_and_score_repo(owner, repo_name, limit=50)
         prs = result.get("prs", [])
@@ -1796,19 +1858,40 @@ def repo_view(owner: str, repo_name: str):
                         except Exception:
                             pass
 
-    # Pre-filter counts
+    # Pre-filter repository KPI counts
+    total_pr_count = len(prs)
+    scored_prs_all = [p for p in prs if p.get("scored") and p.get("residual_risk") is not None]
+    if not scored_prs_all:
+        scored_prs_all = [p for p in prs if p.get("residual_risk") is not None]
+    high_risk_count = sum(1 for p in scored_prs_all if p.get("risk_tier") == "high")
+    medium_risk_count = sum(1 for p in scored_prs_all if p.get("risk_tier") == "medium")
+    avg_residual = round(sum(p["residual_risk"] for p in scored_prs_all) / len(scored_prs_all), 2) if scored_prs_all else 0.0
+
+    # Ensure stats is 100% synchronized with the pre-filter repository totals
+    stats = {
+        "total_scored": len(scored_prs_all),
+        "total_prs": total_pr_count,
+        "high_risk_flagged": high_risk_count,
+        "medium_risk_count": medium_risk_count,
+        "avg_residual_risk": avg_residual,
+    }
+
+    # Pre-filter counts for tri-state tabs
     open_count = len([p for p in prs if p.get("state") == "open"])
-    closed_count = len([p for p in prs if p.get("state") == "closed"])
+    merged_count = len([p for p in prs if p.get("state") == "closed" and (p.get("merged_at") or p.get("is_merged"))])
+    closed_count = len([p for p in prs if p.get("state") == "closed" and not (p.get("merged_at") or p.get("is_merged"))])
 
     # Risk level filter
     if risk_filter != "all":
         prs = [p for p in prs if p.get("risk_tier") == risk_filter]
 
-    # State filter (open vs closed)
+    # State filter (open vs merged vs closed)
     if state_filter == "open":
         prs = [p for p in prs if p.get("state") == "open"]
+    elif state_filter == "merged":
+        prs = [p for p in prs if p.get("state") == "closed" and (p.get("merged_at") or p.get("is_merged"))]
     elif state_filter == "closed":
-        prs = [p for p in prs if p.get("state") == "closed"]
+        prs = [p for p in prs if p.get("state") == "closed" and not (p.get("merged_at") or p.get("is_merged"))]
 
     # Keyword or PR number filter
     if search:
@@ -1826,12 +1909,17 @@ def repo_view(owner: str, repo_name: str):
         "board.html",
         prs=prs,
         stats=stats,
+        total_pr_count=total_pr_count,
+        high_risk_count=high_risk_count,
+        medium_risk_count=medium_risk_count,
+        avg_residual=avg_residual,
         risk_filter=risk_filter,
         state_filter=state_filter,
         search=search,
         current_repo=current_repo_meta,
         active_repo_name=full_name,
         open_count=open_count,
+        merged_count=merged_count,
         closed_count=closed_count,
     )
 
@@ -1866,7 +1954,31 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
     full_repo = f"{org}/{repo_name}"
     full_repo_lower = full_repo.lower()
 
-    # 1. First, attempt live fetch directly from GitHub API (the authoritative source)
+    # 1. Check if this PR was already scored and stored in memory or persistence
+    existing_scored = None
+    for key in (
+        f"{full_repo_lower}/{pr_number}",
+        f"{full_repo_lower}#{pr_number}",
+        f"{full_repo}/{pr_number}",
+        f"{full_repo}#{pr_number}",
+    ):
+        if key in LIVE_PRS_CACHE and LIVE_PRS_CACHE[key].get("scored") and LIVE_PRS_CACHE[key].get("residual_risk") is not None:
+            existing_scored = dict(LIVE_PRS_CACHE[key])
+            break
+
+    if not existing_scored and full_repo_lower in REPO_PRS_CACHE:
+        for p in REPO_PRS_CACHE[full_repo_lower]:
+            if p.get("pr_number") == pr_number and p.get("scored") and p.get("residual_risk") is not None:
+                existing_scored = dict(p)
+                break
+
+    if not existing_scored:
+        for p in store.get_prs():
+            if p.get("repo", "").lower() == full_repo_lower and p.get("pr_number") == pr_number and p.get("scored") and p.get("residual_risk") is not None:
+                existing_scored = dict(p)
+                break
+
+    # 2. Attempt live fetch directly from GitHub API for complete timeline conversation
     base = f"https://api.github.com/repos/{full_repo}"
     pr_data = _github_get(f"{base}/pulls/{pr_number}")
     if isinstance(pr_data, dict) and "number" in pr_data and not pr_data.get("_rate_limit_exceeded"):
@@ -1877,7 +1989,7 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
             f_ic = ex.submit(_github_get, f"{base}/issues/{pr_number}/comments")
             f_rc = ex.submit(_github_get, f"{base}/pulls/{pr_number}/comments")
             f_rv = ex.submit(_github_get, f"{base}/pulls/{pr_number}/reviews")
-            
+
             issue_comments = f_ic.result() or []
             review_comments = f_rc.result() or []
             reviews = f_rv.result() or []
@@ -1960,9 +2072,9 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
             u = rv.get("user") or {}
             login = u.get("login", "unknown")
             rv_body = (rv.get("body") or "").strip()
-            state = (rv.get("state") or "COMMENTED").upper()
-            if rv_body or state in ("APPROVED", "CHANGES_REQUESTED"):
-                default_msg = "Approved these changes." if state == "APPROVED" else ("Requested changes." if state == "CHANGES_REQUESTED" else "Submitted a review.")
+            rv_state = (rv.get("state") or "COMMENTED").upper()
+            if rv_body or rv_state in ("APPROVED", "CHANGES_REQUESTED"):
+                default_msg = "Approved these changes." if rv_state == "APPROVED" else ("Requested changes." if rv_state == "CHANGES_REQUESTED" else "Submitted a review.")
                 conversation.append({
                     "type": "review",
                     "user": {
@@ -1971,7 +2083,7 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
                         "html_url": u.get("html_url") or f"https://github.com/{login}",
                     },
                     "body": rv_body or default_msg,
-                    "review_state": state,
+                    "review_state": rv_state,
                     "created_at": rv.get("submitted_at") or rv.get("created_at") or pr_data.get("created_at"),
                     "role_badge": "Reviewer",
                     "is_author": False,
@@ -1982,44 +2094,52 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
         rest_sorted = sorted(conversation[1:], key=lambda x: x.get("created_at") or "")
         full_conversation = [first_desc] + rest_sorted
 
-        scored = _score_pr_heuristic(pr_data, reviews, review_comments)
+        # Compute the LATEST score using live GitHub data (prioritizing latest scoring)
+        all_comments = review_comments + issue_comments
+        scored = _score_pr_heuristic(pr_data, reviews, all_comments)
         scored["body"] = pr_body
         scored["conversation"] = full_conversation
         scored["comments_count"] = len(issue_comments) + len(review_comments)
         scored["pr_url"] = pr_data.get("html_url") or f"https://github.com/{full_repo}/pull/{pr_number}"
+        scored["scored"] = True
+
+        # Synchronize this LATEST score everywhere so board, cache, and persistence are 100% in sync
         _cache_scored_pr(scored)
+
+        if full_repo_lower in REPO_PRS_CACHE:
+            updated = False
+            for idx, p in enumerate(REPO_PRS_CACHE[full_repo_lower]):
+                if p.get("pr_number") == pr_number:
+                    REPO_PRS_CACHE[full_repo_lower][idx] = scored
+                    updated = True
+                    break
+            if not updated:
+                REPO_PRS_CACHE[full_repo_lower].insert(0, scored)
+        else:
+            REPO_PRS_CACHE[full_repo_lower] = [scored]
+
+        try:
+            store.save_pr(scored)
+        except Exception:
+            pass
+
+        if full_repo in FETCHED_REPOS:
+            prs = REPO_PRS_CACHE.get(full_repo_lower, [])
+            scored_only = [p for p in prs if p.get("scored") and p.get("residual_risk") is not None]
+            if scored_only:
+                avg_res = sum(p["residual_risk"] for p in scored_only) / len(scored_only)
+                FETCHED_REPOS[full_repo]["avg_residual_risk"] = round(avg_res, 2)
+            try:
+                store.save_repo(FETCHED_REPOS[full_repo])
+            except Exception:
+                pass
+
         return scored, 200
 
-    # 2. Check repo-scoped in-memory cache if GitHub was not reachable
-    for key in (
-        f"{full_repo_lower}/{pr_number}",
-        f"{full_repo_lower}#{pr_number}",
-        f"{full_repo}/{pr_number}",
-        f"{full_repo}#{pr_number}",
-    ):
-        if key in LIVE_PRS_CACHE:
-            cached_pr = LIVE_PRS_CACHE[key]
-            if cached_pr.get("scored") and cached_pr.get("residual_risk") is not None:
-                return cached_pr, 200
-
-    # 3. Check REPO_PRS_CACHE for this repository
-    if full_repo_lower in REPO_PRS_CACHE:
-        for p in REPO_PRS_CACHE[full_repo_lower]:
-            if p.get("pr_number") == pr_number:
-                if p.get("scored") and p.get("residual_risk") is not None:
-                    _cache_scored_pr(p)
-                    return p, 200
-                scored = _score_pr_heuristic(p)
-                scored["scored"] = True
-                _cache_scored_pr(scored)
-                return scored, 200
-
-    # 4. Check persistent storage for this repository and PR number
-    stored_prs = store.get_prs()
-    for p in stored_prs:
-        if p.get("repo", "").lower() == full_repo_lower and p.get("pr_number") == pr_number:
-            _cache_scored_pr(p)
-            return p, 200
+    # 3. If GitHub was unreachable, return existing scored from cache/storage
+    if existing_scored:
+        _cache_scored_pr(existing_scored)
+        return existing_scored, 200
 
     return None, 404
 
@@ -2282,13 +2402,14 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
     }
     for pr in all_prs:
         dur = int(pr.get("review_duration_seconds") or 3600)
-        if dur < 600 and pr.get("state") == "closed":
+        is_pr_merged = bool(pr.get("merged_at")) or bool(pr.get("is_merged"))
+        if dur < 600 and is_pr_merged:
             discrepancy_counts["rapid_merge"] += 1
         if pr.get("reviewer") and pr.get("author") and pr["reviewer"].lower() == pr["author"].lower() and pr["reviewer"] != "collaborator":
             discrepancy_counts["self_review"] += 1
-        if pr.get("reviewer") in ("", "collaborator", "unassigned"):
+        if pr.get("reviewer") in ("", "collaborator", "unassigned", None):
             discrepancy_counts["no_reviewer"] += 1
-        if any(w in pr.get("title", "").lower() for w in ("wip", "do not merge", "draft", "dnm")) and pr.get("state") == "closed":
+        if any(w in pr.get("title", "").lower() for w in ("wip", "do not merge", "draft", "dnm")) and is_pr_merged:
             discrepancy_counts["wip_merged"] += 1
         if pr.get("re_queued"):
             discrepancy_counts["high_residual_requeued"] += 1
@@ -2643,7 +2764,7 @@ def api_explain_groq():
     attention_state = float(pr_obj.get("attention_state") if pr_obj.get("attention_state") is not None else 1.0)
     review_duration_seconds = int(pr_obj.get("review_duration_seconds") or 3600)
     diff_lines = int(pr_obj.get("diff_lines") or (pr_obj.get("additions", 0) + pr_obj.get("deletions", 0)) or 100)
-    reviewer = str(pr_obj.get("reviewer") or "collaborator")
+    reviewer = str(pr_obj.get("reviewer") or "None assigned")
     consecutive_reviews = int(pr_obj.get("consecutive_reviews") or 0)
     sensitive_files = pr_obj.get("sensitive_files") or []
     file_context = ", ".join(sensitive_files[:2]) if sensitive_files else ""
