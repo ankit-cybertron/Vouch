@@ -33,6 +33,7 @@ from flask import (
     url_for,
     has_request_context,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from dashboard.store import get_store
 from dashboard.version import get_version_info, __version__
@@ -80,6 +81,35 @@ app = Flask(
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vouch-dev-secret")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.jinja_env.globals.update(max=max, min=min)
+
+# Support reverse-proxy headers (Elastic Beanstalk, ngrok, AWS ALB, etc.)
+# This ensures request.host_url and url_for() produce the correct scheme/host.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+def _app_base_url() -> str:
+    """
+    Return the canonical public base URL for this Vouch instance.
+
+    Uses APP_BASE_URL env var when set (required for deployed environments).
+    Falls back to Flask's request.host_url for localhost development.
+    """
+    base = os.environ.get("APP_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return base
+    if has_request_context():
+        return request.host_url.rstrip("/")
+    return "http://localhost:5001"
+
+
+def _oauth_callback_uri() -> str:
+    """Build the exact GitHub OAuth callback URI, respecting APP_BASE_URL."""
+    return _app_base_url() + url_for("auth_github_callback")
+
+
+def _app_setup_callback_uri() -> str:
+    """Build the GitHub App post-install callback URI, respecting APP_BASE_URL."""
+    return _app_base_url() + url_for("auth_github_app_callback")
 
 
 def _resolve_github_token() -> str:
@@ -1219,6 +1249,10 @@ def landing_page():
     # Legacy OAuth availability (fallback when GitHub App is not configured)
     has_oauth = bool(client_id) or bool(_resolve_github_token())
 
+    # Pre-compute the exact callback URLs for display in setup instructions
+    computed_oauth_callback_uri = _oauth_callback_uri()
+    computed_app_callback_uri = _app_setup_callback_uri()
+
     return render_template(
         "landing.html",
         sample_repos=sample_repos,
@@ -1227,6 +1261,8 @@ def landing_page():
         error=error,
         app_configured=app_configured,
         app_install_url=app_install_url,
+        computed_oauth_callback_uri=computed_oauth_callback_uri,
+        computed_app_callback_uri=computed_app_callback_uri,
     )
 
 
@@ -1345,7 +1381,8 @@ def auth_github():
     if client_id and client_secret:
         state = secrets.token_urlsafe(16)
         session["oauth_state"] = state
-        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+        # Use APP_BASE_URL when deployed (Elastic Beanstalk / reverse proxy)
+        redirect_uri = _oauth_callback_uri()
 
         params = {
             "client_id": client_id,
@@ -1417,7 +1454,8 @@ def auth_github_callback():
     client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
 
     try:
-        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+        # Use APP_BASE_URL when deployed so redirect_uri matches what GitHub expects
+        redirect_uri = _oauth_callback_uri()
         token_resp = requests.post(
             "https://github.com/login/oauth/access_token",
             headers={"Accept": "application/json"},

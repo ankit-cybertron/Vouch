@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Connect GitHub · Vouch Review Intelligence{% endblock %}
-{% block meta_description %}Connect your GitHub account or personal token to analyze pull requests with Vouch review intelligence.{% endblock %}
+{% block meta_description %}Connect your GitHub account to analyze pull requests with Vouch review intelligence.{% endblock %}
 {% block body_class %}landing-auth-body{% endblock %}
 {% block navbar %}{% endblock %}
 {% block footer %}{% endblock %}
@@ -17,19 +17,9 @@
       </div>
       <h1 class="gh-auth-title">Vouch Review Intelligence</h1>
       <p class="gh-auth-subtitle">
-        Connect your GitHub account to analyze pull requests, calculate residual risk, and use your personal 5,000 req/hr quota.
+        Connect your GitHub account to analyze pull requests, calculate residual risk, and detect rubber-stamp reviews.
       </p>
     </div>
-
-    <!-- Alert if OAuth setup is needed -->
-    {% if oauth_setup %}
-    <div class="gh-auth-alert" style="background:var(--color-attention-subtle); border-color:#d4a72c66; color:var(--color-fg-default);">
-      <div style="font-weight:600; margin-bottom:2px; color:var(--color-attention-fg);">GitHub OAuth not configured on server</div>
-      <div style="font-size:12px; color:var(--color-fg-muted);">
-        To enable 1-click OAuth, add <code class="gh-inline-code">GITHUB_CLIENT_ID</code> and <code class="gh-inline-code">GITHUB_CLIENT_SECRET</code> to <code class="gh-inline-code">.env</code>. Or simply enter your personal token below!
-      </div>
-    </div>
-    {% endif %}
 
     {% if error %}
     <div class="gh-auth-alert" style="background:var(--color-danger-subtle); border-color:#ff818266; color:var(--color-danger-fg);">
@@ -37,16 +27,21 @@
     </div>
     {% endif %}
 
-    <!-- ── THE ONE MAIN BUTTON: Connect with GitHub ─────────── -->
+    <!-- ── PRIMARY AUTH ACTIONS ──────────────────────────────── -->
     <div class="gh-auth-actions">
-      {% if has_oauth %}
-      <a href="/auth/github" class="gh-btn-connect-oauth" id="btn-connect-github">
+
+      {% if app_configured and app_install_url %}
+      <!-- GitHub App install button (highest priority) -->
+      <a href="{{ app_install_url }}" class="gh-btn-connect-oauth" id="btn-install-github-app" style="background:var(--color-btn-primary-bg); border-color:var(--color-btn-primary-border); color:var(--color-btn-primary-text); margin-bottom:8px;">
         <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
         </svg>
-        <span>Connect with GitHub</span>
+        <span>Install Vouch on GitHub</span>
       </a>
-      {% else %}
+      {% endif %}
+
+      {% if has_oauth %}
+      <!-- OAuth connect button -->
       <a href="/auth/github" class="gh-btn-connect-oauth" id="btn-connect-github">
         <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
@@ -54,6 +49,70 @@
         <span>Connect with GitHub</span>
       </a>
       {% endif %}
+
+      {% if not app_configured and not has_oauth %}
+      <!-- Neither is configured — show setup panel -->
+      <div style="background:var(--color-canvas-subtle); border:1px solid var(--color-border-default); border-radius:8px; padding:16px; margin-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-attention-fg);">
+            <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path>
+          </svg>
+          <span style="font-weight:600; font-size:13px; color:var(--color-fg-default);">GitHub App not configured</span>
+        </div>
+        <p style="font-size:12px; color:var(--color-fg-muted); margin:0 0 12px;">
+          Set up a GitHub App <strong>or</strong> OAuth App to enable "Connect with GitHub". Add the credentials to <code>.env</code> and restart the server.
+        </p>
+
+        <!-- Step-by-step setup instructions -->
+        <details style="margin-bottom:10px;">
+          <summary style="font-size:12px; font-weight:600; color:var(--color-accent-fg); cursor:pointer; list-style:none;">
+            ▶ Step-by-step: Create a GitHub App (recommended)
+          </summary>
+          <ol style="font-size:11.5px; color:var(--color-fg-default); margin:10px 0 0 16px; line-height:1.8;">
+            <li>Go to <a href="https://github.com/settings/apps/new" target="_blank" style="color:var(--color-accent-fg);">github.com/settings/apps/new</a></li>
+            <li>Set <strong>GitHub App name</strong>: <code>Vouch</code></li>
+            <li>Set <strong>Homepage URL</strong>: <code>{{ computed_app_callback_uri.split('/auth')[0] }}</code></li>
+            <li>Under <strong>Post installation → Setup URL</strong>, paste:<br>
+              <code style="background:var(--color-canvas-default); padding:2px 6px; border-radius:4px; font-size:11px; display:block; margin-top:4px; user-select:all;">{{ computed_app_callback_uri }}</code>
+            </li>
+            <li>Enable <strong>"Redirect on update"</strong></li>
+            <li>Set <strong>Permissions → Repository</strong>: Contents (Read), Pull requests (Read), Metadata (Read)</li>
+            <li>Click <strong>Create GitHub App</strong></li>
+            <li>Copy the <strong>App ID</strong> and generate a <strong>Private Key</strong> (.pem)</li>
+            <li>Add to <code>.env</code>:
+              <pre style="background:var(--color-canvas-default); border:1px solid var(--color-border-default); border-radius:4px; padding:8px; font-size:11px; margin-top:6px; overflow-x:auto;">GITHUB_APP_ID=your_app_id
+GITHUB_APP_PRIVATE_KEY_PATH=/path/to/vouch.pem
+GITHUB_APP_INSTALL_URL=https://github.com/apps/vouch/installations/new
+APP_BASE_URL={{ computed_app_callback_uri.split('/auth')[0] }}</pre>
+            </li>
+            <li>Restart the server — the <strong>Install Vouch on GitHub</strong> button will appear</li>
+          </ol>
+        </details>
+
+        <details>
+          <summary style="font-size:12px; font-weight:600; color:var(--color-accent-fg); cursor:pointer; list-style:none;">
+            ▶ Step-by-step: Create a GitHub OAuth App (simpler, user tokens)
+          </summary>
+          <ol style="font-size:11.5px; color:var(--color-fg-default); margin:10px 0 0 16px; line-height:1.8;">
+            <li>Go to <a href="https://github.com/settings/applications/new" target="_blank" style="color:var(--color-accent-fg);">github.com/settings/applications/new</a></li>
+            <li>Set <strong>Application name</strong>: <code>Vouch</code></li>
+            <li>Set <strong>Homepage URL</strong>: <code>{{ computed_oauth_callback_uri.split('/auth')[0] }}</code></li>
+            <li>Set <strong>Authorization callback URL</strong> (paste exactly):
+              <code style="background:var(--color-canvas-default); padding:2px 6px; border-radius:4px; font-size:11px; display:block; margin-top:4px; user-select:all;">{{ computed_oauth_callback_uri }}</code>
+            </li>
+            <li>Click <strong>Register application</strong></li>
+            <li>Copy <strong>Client ID</strong> and generate a new <strong>Client Secret</strong></li>
+            <li>Add to <code>.env</code>:
+              <pre style="background:var(--color-canvas-default); border:1px solid var(--color-border-default); border-radius:4px; padding:8px; font-size:11px; margin-top:6px; overflow-x:auto;">GITHUB_CLIENT_ID=your_client_id
+GITHUB_CLIENT_SECRET=your_client_secret
+APP_BASE_URL={{ computed_oauth_callback_uri.split('/auth')[0] }}</pre>
+            </li>
+            <li>Restart the server — the <strong>Connect with GitHub</strong> button will work</li>
+          </ol>
+        </details>
+      </div>
+      {% endif %}
+
     </div>
 
     <!-- ── Divider ────────────────────────────────────────────── -->
@@ -156,3 +215,4 @@
   }
 </script>
 {% endblock %}
+
