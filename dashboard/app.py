@@ -35,6 +35,7 @@ from flask import (
 )
 
 from dashboard.store import get_store
+from dashboard.version import get_version_info, __version__
 
 store = get_store()
 
@@ -1146,6 +1147,7 @@ def inject_global_vars():
         "repos_count": len(FETCHED_REPOS),
         "all_repos": list(FETCHED_REPOS.values()),
         "auth": auth_info,
+        "app_version": get_version_info(),
     }
 
 
@@ -2070,6 +2072,25 @@ def team_health():
         repos=list(FETCHED_REPOS.values()),
         active_repo=repo_filter,
     )
+
+
+@app.route("/api/version")
+def api_version():
+    """Application version, git build metadata, and environment status."""
+    return jsonify(get_version_info())
+
+
+@app.route("/api/health")
+def api_health():
+    """Health check endpoint for ALB and monitoring systems."""
+    v_info = get_version_info()
+    return jsonify({
+        "status": "healthy",
+        "version": v_info["version"],
+        "commit": v_info["commit_short"],
+        "branch": v_info["branch"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 @app.route("/api/repos")

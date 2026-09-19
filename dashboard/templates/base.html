@@ -21,6 +21,9 @@
             <path d="M8.533.133 13.783 1.813A1.75 1.75 0 0 1 15 3.48v4.387a9.87 9.87 0 0 1-5.093 8.653.75.75 0 0 1-.72 0A9.87 9.87 0 0 1 1 7.868V3.48a1.75 1.75 0 0 1 1.217-1.667L7.467.133a1.748 1.748 0 0 1 1.066 0ZM8 1.55l-5.32 1.702a.25.25 0 0 0-.18.228v4.388c0 3.197 1.884 6.136 4.75 7.604a17.433 17.433 0 0 0 4.75-7.604V3.48a.25.25 0 0 0-.18-.228L8 1.55Zm2.78 4.67a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.75.75 0 1 1 1.06-1.06L6.5 8.94l2.97-2.97a.75.75 0 0 1 1.06 0Z"></path>
           </svg>
           <span class="gh-brand-name">Vouch</span>
+          {% if app_version %}
+          <span class="gh-version-badge" title="Commit: {{ app_version.commit_short }} ({{ app_version.branch }})">v{{ app_version.version }}</span>
+          {% endif %}
           <span class="gh-label gh-label-confidence">Review Intelligence</span>
         </a>
 
@@ -88,8 +91,12 @@
   <!-- ── Clean Footer ───────────────────────────────────────── -->
   <footer class="gh-footer" role="contentinfo">
     <div class="gh-footer-inner">
-      <div>
-        <strong>Vouch</strong> · Review Confidence Scoring &amp; Risk-Aware Re-queuing · Bharat Builds Tour 2026
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <strong>Vouch</strong>
+        {% if app_version %}
+        <span class="gh-footer-version" title="Full commit: {{ app_version.commit }}">v{{ app_version.version }} ({{ app_version.commit_short }})</span>
+        {% endif %}
+        <span>· Review Confidence Scoring &amp; Risk-Aware Re-queuing · Bharat Builds Tour 2026</span>
       </div>
       <div style="font-size:12px; color:var(--color-fg-muted);">
         residual_risk = change_risk × (1 − review_confidence)

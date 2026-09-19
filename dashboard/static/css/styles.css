@@ -111,6 +111,38 @@ a:hover {
   font-size: 16px;
   letter-spacing: -0.2px;
 }
+.gh-version-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 12px;
+  background: rgba(110, 118, 129, 0.12);
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border-default);
+  letter-spacing: 0.2px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.gh-brand:hover .gh-version-badge {
+  color: var(--color-accent-fg);
+  border-color: rgba(47, 129, 247, 0.4);
+  background: rgba(47, 129, 247, 0.1);
+}
+.gh-footer-version {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  color: var(--color-fg-muted);
+}
 
 .gh-nav-links {
   display: flex;
