@@ -11,7 +11,7 @@ import os
 import subprocess
 from functools import lru_cache
 
-__version__ = "2.4"
+__version__ = "2.5"
 VERSION_NAME = "Intelligence Edition"
 
 

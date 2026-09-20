@@ -3892,6 +3892,7 @@ html {
 /* ── Compact Sidebar Risk Breakdown Component ──────────────── */
 .vouch-sidebar-risk-card {
   padding: 0;
+  position: relative;
 }
 
 .vouch-sidebar-risk-body {
@@ -3902,9 +3903,40 @@ html {
 }
 
 .vouch-sidebar-metric-row {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 5px;
+  cursor: pointer;
+}
+
+.vouch-sidebar-metric-row:hover .vouch-popover-tooltip,
+.vouch-sidebar-metric-row:focus-within .vouch-popover-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.vouch-sidebar-metric-row:hover .vouch-info-icon,
+.vouch-sidebar-metric-row:focus-within .vouch-info-icon {
+  color: var(--color-accent-fg);
+  opacity: 1;
+}
+
+.vouch-sidebar-metric-row:hover .vouch-sidebar-metric-track {
+  border-color: var(--color-accent-fg);
+}
+
+.vouch-sidebar-risk-card .vouch-popover-tooltip {
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 252px;
+  max-width: calc(100vw - 32px);
+  z-index: 1000;
+}
+
+.vouch-sidebar-risk-card .vouch-popover-tooltip::after {
+  left: 22px;
 }
 
 .vouch-sidebar-metric-header {
