@@ -131,10 +131,44 @@ a:hover {
   text-decoration: none;
   font-weight: 700;
   font-size: 16px;
+  flex-shrink: 0;
 }
 .gh-brand:hover {
   text-decoration: none;
   color: var(--color-accent-fg);
+}
+.gh-brand-logo {
+  height: 28px;
+  width: auto;
+  max-width: 130px;
+  display: block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  overflow: visible;
+  transition: transform 0.15s ease;
+}
+.gh-brand:hover .gh-brand-logo {
+  transform: scale(1.02);
+}
+.gh-brand-logo .vouch-logo-bg {
+  display: none;
+}
+.gh-brand-logo .vouch-logo-letters {
+  fill: var(--color-fg-default, #fdfcfd);
+  stroke: none;
+  transition: fill 0.15s ease;
+}
+.gh-brand-logo .vouch-logo-dot {
+  fill: #3fb950;
+  stroke: none;
+}
+html[data-theme="light"] .gh-brand-logo .vouch-logo-letters {
+  fill: #1f2328;
+  stroke: none;
+}
+html[data-theme="light"] .gh-brand-logo .vouch-logo-dot {
+  fill: #1a7f37;
+  stroke: none;
 }
 .gh-brand-icon {
   color: var(--color-success-fg);
@@ -706,6 +740,7 @@ a:hover {
 /* Breakdown bar fills */
 .breakdown-bar-change { background-color: var(--color-danger-fg) !important; }
 .breakdown-bar-confidence { background-color: var(--color-success-fg) !important; }
+.breakdown-bar-attention { background-color: var(--color-attention-fg) !important; }
 
 /* Risk indicator typography & badge utilities */
 .risk-color-high, .risk-color-danger { color: var(--color-danger-fg) !important; }
@@ -1871,6 +1906,9 @@ a:hover {
   }
   .gh-brand-name {
     font-size: 15px;
+  }
+  .gh-brand-logo {
+    height: 24px;
   }
   .gh-brand .gh-label {
     display: none; /* Keep brand tidy on 320px–375px screens */
@@ -3477,4 +3515,186 @@ a:hover {
   background: var(--color-border-muted);
   color: var(--color-fg-muted);
 }
+
+/* ── Metric Info Tooltip & Popover ─────────────────────────── */
+.vouch-info-tooltip-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: help;
+}
+
+.vouch-info-icon {
+  color: var(--color-fg-muted);
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  vertical-align: middle;
+}
+
+.vouch-info-tooltip-trigger:hover .vouch-info-icon,
+.vouch-info-tooltip-trigger:focus .vouch-info-icon {
+  color: var(--color-accent-fg);
+  opacity: 1;
+}
+
+.vouch-popover-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 270px;
+  background: var(--color-card-bg, #161b22);
+  color: var(--color-fg-default, #f0f6fc);
+  border: 1px solid var(--color-border-default, #30363d);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+  z-index: 1000;
+  font-weight: 400;
+  text-align: left;
+}
+
+.vouch-popover-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 20px;
+  border-width: 6px;
+  border-style: solid;
+  border-color: var(--color-border-default, #30363d) transparent transparent transparent;
+}
+
+.vouch-info-tooltip-trigger:hover .vouch-popover-tooltip,
+.vouch-info-tooltip-trigger:focus-within .vouch-popover-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.vouch-popover-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-fg-default);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vouch-popover-formula {
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  margin: 5px 0 6px;
+  color: var(--color-accent-fg);
+}
+
+.vouch-popover-body {
+  color: var(--color-fg-muted);
+  margin-bottom: 6px;
+}
+
+.vouch-popover-meta {
+  font-size: 11px;
+  color: var(--color-fg-subtle);
+  border-top: 1px solid var(--color-border-muted);
+  padding-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Video Showcase Section ────────────────────────────────── */
+.vouch-video-card {
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-border-default);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+[data-theme="dark"] .vouch-video-card {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.vouch-video-card:hover {
+  border-color: var(--color-border-muted);
+}
+
+.vouch-video-player-wrapper {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%; /* 16:9 Aspect Ratio */
+  background: #000000;
+}
+
+.vouch-video-iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.vouch-video-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--color-canvas-subtle);
+  border-top: 1px solid var(--color-border-default);
+}
+
+.vouch-video-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vouch-video-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+}
+
+.vouch-youtube-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none !important;
+}
+
+.vouch-youtube-link-btn:hover {
+  border-color: #ff0000;
+  color: var(--color-fg-default);
+}
+
 
