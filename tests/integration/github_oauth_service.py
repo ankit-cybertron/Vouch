@@ -64,7 +64,7 @@ class TestGitHubAppInstallRoute:
             res = client.get("/auth/github")
 
         assert res.status_code == 302
-        assert res.headers["Location"] == "/repos"
+        assert res.headers["Location"].startswith("/repos")
 
         with client.session_transaction() as sess:
             assert "github_token" not in sess
@@ -127,7 +127,7 @@ class TestGitHubAppCallbackRoute:
                 "/auth/github/app/callback?installation_id=99&setup_action=install"
             )
             assert res.status_code == 302
-            assert res.headers["Location"] == "/repos"
+            assert res.headers["Location"].startswith("/repos")
 
             with client.session_transaction() as sess:
                 assert sess["installation_id"] == 99

@@ -72,6 +72,23 @@ class StorageBackend(ABC):
         """Return distinct reviewer usernames across all PRs sorted by recency."""
         ...
 
+    @abstractmethod
+    def get_all_prs_today(self) -> list[dict]:
+        """
+        Returns all PRs whose scored_at >= today midnight UTC.
+        Never raise — return [] on exception.
+        """
+        ...
+
+    @abstractmethod
+    def get_open_unreviewed_prs(self) -> list[dict]:
+        """
+        Returns all PRs where state == 'open' and len(reviewers) == 0.
+        Sorted by change_risk DESC.
+        Never raise — return [] on exception.
+        """
+        ...
+
 
 
 class JsonStorageBackend(StorageBackend):
@@ -266,6 +283,38 @@ class JsonStorageBackend(StorageBackend):
         except Exception as e:
             logger.error("JsonStorageBackend get_all_reviewer_usernames failed: %s", e)
             return []
+
+    def get_all_prs_today(self) -> list[dict]:
+        """Returns all PRs whose scored_at >= today midnight UTC. Never raises."""
+        try:
+            import time
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            midnight_ts = datetime(now.year, now.month, now.day, tzinfo=timezone.utc).timestamp()
+            prs = self.get_prs()
+            return [p for p in prs if p.get("scored_at", 0) >= midnight_ts]
+        except Exception as e:
+            logger.error("JsonStorageBackend get_all_prs_today failed: %s", e)
+            return []
+
+    def get_open_unreviewed_prs(self) -> list[dict]:
+        """Returns open PRs with no reviewers, sorted by change_risk DESC. Never raises."""
+        try:
+            prs = self.get_prs()
+            result = []
+            for p in prs:
+                if p.get("state") != "open":
+                    continue
+                reviewers = p.get("reviewers", [])
+                if isinstance(reviewers, list) and len(reviewers) == 0:
+                    result.append(p)
+            result.sort(key=lambda p: p.get("change_risk", 0), reverse=True)
+            return result
+        except Exception as e:
+            logger.error("JsonStorageBackend get_open_unreviewed_prs failed: %s", e)
+            return []
+
+
 
 
 
@@ -497,6 +546,37 @@ class DynamoDbStorageBackend(StorageBackend):
         except Exception as e:
             logger.error("DynamoDB get_all_reviewer_usernames failed: %s", e)
             return []
+
+    def get_all_prs_today(self) -> list[dict]:
+        """Returns all PRs whose scored_at >= today midnight UTC. Never raises."""
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            midnight_ts = datetime(now.year, now.month, now.day, tzinfo=timezone.utc).timestamp()
+            prs = self.get_prs()
+            return [p for p in prs if p.get("scored_at", 0) >= midnight_ts]
+        except Exception as e:
+            logger.error("DynamoDB get_all_prs_today failed: %s", e)
+            return []
+
+    def get_open_unreviewed_prs(self) -> list[dict]:
+        """Returns open PRs with no reviewers, sorted by change_risk DESC. Never raises."""
+        try:
+            prs = self.get_prs()
+            result = []
+            for p in prs:
+                if p.get("state") != "open":
+                    continue
+                reviewers = p.get("reviewers", [])
+                if isinstance(reviewers, list) and len(reviewers) == 0:
+                    result.append(p)
+            result.sort(key=lambda p: p.get("change_risk", 0), reverse=True)
+            return result
+        except Exception as e:
+            logger.error("DynamoDB get_open_unreviewed_prs failed: %s", e)
+            return []
+
+
 
 
 

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Pair Intelligence{% endblock %}
+{% block meta_description %}Author-Reviewer pair quality outcomes — golden pairs and risky patterns{% endblock %}
+{% block content %}
+<div style="max-width:1280px; margin:0 auto; padding:24px;">
+  <div style="margin-bottom:24px;">
+    <h1 style="font-size:22px; font-weight:700; color:var(--color-fg-default); margin:0 0 4px;">Author-Reviewer Pair Intelligence</h1>
+    <p style="color:var(--color-fg-muted); font-size:13px; margin:0;">Which pairs produce the best — and worst — review outcomes</p>
+  </div>
+
+  {# KPI Row #}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; margin-bottom:24px;">
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-fg-default);">{{ total_pairs }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Total Pairs Tracked</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-success-fg);">{{ golden_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Golden Pairs</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-danger-fg);">{{ risky_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Risky Pairs</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-attention-fg);">{{ watchlist_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">On Watchlist</div></div>
+  </div>
+
+  {% macro pair_table(pair_list) %}
+  {% if pair_list %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead><tr style="background:var(--color-canvas-subtle);">
+        <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Author</th>
+        <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Reviewer</th>
+        <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Reviews</th>
+        <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Avg Depth</th>
+        <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Avg Residual</th>
+        <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Re-Queue Rate</th>
+        <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Domains</th>
+        <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Quality</th>
+      </tr></thead>
+      <tbody>
+        {% for p in pair_list %}
+        {% if p.avg_depth_score >= 0.65 %}{% set dc = "var(--color-success-fg)" %}
+        {% elif p.avg_depth_score >= 0.35 %}{% set dc = "var(--color-attention-fg)" %}
+        {% else %}{% set dc = "var(--color-danger-fg)" %}{% endif %}
+        {% if p.requeue_rate < 0.10 %}{% set rqc = "var(--color-success-fg)" %}
+        {% elif p.requeue_rate <= 0.30 %}{% set rqc = "var(--color-attention-fg)" %}
+        {% else %}{% set rqc = "var(--color-danger-fg)" %}{% endif %}
+        {% set qpct = (p.quality_score * 100)|int %}
+        <tr style="border-bottom:1px solid var(--color-border-muted);">
+          <td style="padding:10px 12px;"><a href="/reviewer/{{ p.author }}" style="color:var(--color-accent-fg); text-decoration:none;">@{{ p.author }}</a></td>
+          <td style="padding:10px 12px;"><a href="/reviewer/{{ p.reviewer }}" style="color:var(--color-accent-fg); text-decoration:none;">@{{ p.reviewer }}</a></td>
+          <td style="padding:10px 12px; text-align:center;">{{ p.reviews }}</td>
+          <td style="padding:10px 12px; text-align:center; color:{{ dc }}; font-weight:600;">{{ p.avg_depth_score }}</td>
+          <td style="padding:10px 12px; text-align:center;">{{ p.avg_residual_risk }}</td>
+          <td style="padding:10px 12px; text-align:center; color:{{ rqc }}; font-weight:600;">{{ (p.requeue_rate * 100)|int }}%</td>
+          <td style="padding:10px 12px;">{% for d in p.top_domains %}<span class="gh-label" style="font-size:10px; margin-right:4px;">{{ d }}</span>{% endfor %}</td>
+          <td style="padding:10px 12px; min-width:100px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div style="height:100%; width:{{ qpct }}%; background:var(--color-success-fg); border-radius:3px;"></div></div>
+              <span style="font-size:11px; color:var(--color-fg-muted); min-width:28px;">{{ qpct }}%</span>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<div style="padding:24px 16px; color:var(--color-fg-muted);">No pairs in this category yet.</div>{% endif %}
+  {% endmacro %}
+
+  {# Golden Pairs #}
+  <div class="gh-box" style="margin-bottom:24px;">
+    <div class="gh-box-header">
+      <h2 style="font-size:15px; font-weight:600; margin:0; color:var(--color-success-fg);">Golden Pairs — consistently thorough reviews</h2>
+      <p style="color:var(--color-fg-muted); font-size:12px; margin:4px 0 0;">Pairs with quality score 70%+ across 3+ reviews</p>
+    </div>
+    {{ pair_table(golden) }}
+  </div>
+
+  {# Risky Pairs #}
+  <div class="gh-box" style="margin-bottom:24px;">
+    <div class="gh-box-header">
+      <h2 style="font-size:15px; font-weight:600; margin:0; color:var(--color-danger-fg);">Risky Pairs — consistent rubber-stamps</h2>
+      <p style="color:var(--color-fg-muted); font-size:12px; margin:4px 0 0;">Re-queue rate 40%+ or avg depth below 0.20</p>
+    </div>
+    {% if risky %}
+    <div style="margin:12px 16px 0; padding:10px 14px; background:var(--color-danger-subtle); border:1px solid var(--color-danger-fg); border-radius:6px; font-size:13px; color:var(--color-fg-default);">
+      These pairs have a pattern of shallow reviews. Consider rotating reviewers or requiring a third reviewer for high-risk PRs between these authors.
+    </div>
+    {% endif %}
+    {{ pair_table(risky) }}
+  </div>
+
+  {# Watchlist #}
+  <div class="gh-box" style="margin-bottom:24px;">
+    <div class="gh-box-header">
+      <h2 style="font-size:15px; font-weight:600; margin:0; color:var(--color-attention-fg);">Watchlist — elevated residual risk</h2>
+      <p style="color:var(--color-fg-muted); font-size:12px; margin:4px 0 0;">Average residual risk 55%+ together</p>
+    </div>
+    {{ pair_table(watchlist) }}
+  </div>
+
+  {# Neutral Pairs (collapsible) #}
+  {% if neutral %}
+  <div class="gh-box">
+    <details>
+      <summary style="padding:12px 16px; cursor:pointer; font-size:14px; font-weight:600; color:var(--color-fg-default); list-style:none; display:flex; align-items:center; justify-content:space-between;">
+        All {{ neutral|length }} neutral pairs
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"></path></svg>
+      </summary>
+      {{ pair_table(neutral) }}
+    </details>
+  </div>
+  {% endif %}
+
+  {% if not total_pairs %}
+  <div class="gh-box" style="padding:48px; text-align:center; color:var(--color-fg-muted);">
+    No pair data yet. Add repositories and score PRs to see author-reviewer pair patterns.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

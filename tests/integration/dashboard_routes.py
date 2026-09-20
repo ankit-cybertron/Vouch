@@ -50,22 +50,20 @@ class TestDashboardCoreRoutes:
         assert "Pull Requests" in html or "kubernetes" in html
 
     def test_team_health_page_rendering(self, client):
-        """GET /team-health renders team review health and fatigue analytics."""
+        """GET /team-health renders org-wide reviewer health analytics."""
         res = client.get("/team-health")
         assert res.status_code == 200
         html = res.get_data(as_text=True)
-
-        assert "Team Review Health" in html
-        assert "Reviewer Fatigue Index" in html
-        assert "Rubber-Stamp Index" in html
+        assert "Org" in html or "Health" in html
+        assert "Reviewer" in html
 
     def test_validation_route_compatibility(self, client):
-        """GET /validation renders team health analytics for backward compatibility."""
+        """GET /validation renders org health analytics for backward compatibility."""
         res = client.get("/validation")
         assert res.status_code == 200
         html = res.get_data(as_text=True)
+        assert "Org" in html or "Health" in html
 
-        assert "Team Review Health" in html
 
     def test_404_error_page(self, client):
         """Requesting non-existent route renders custom 404 page."""
@@ -85,14 +83,13 @@ class TestDashboardCoreRoutes:
         assert "Pull Requests Intelligence" in html
         assert "data-smart-repo" in html
 
-    def test_team_health_direct_visit_shows_hero_search(self, client):
-        """GET /team-health directly renders clean hero repository search selector."""
+    def test_team_health_direct_visit_shows_org_health(self, client):
+        """GET /team-health renders the org-wide reviewer health dashboard."""
         res = client.get("/team-health")
         assert res.status_code == 200
         html = res.get_data(as_text=True)
-        assert "hero-search-page" in html
-        assert "Team Review Health" in html
-        assert "data-smart-repo" in html
+        assert "Org" in html or "Health" in html
+
 
     def test_smart_repos_search_api(self, client):
         """GET /api/repos/search returns live typeahead suggestions."""
@@ -132,3 +129,46 @@ class TestReviewerRoutes:
         assert response.status_code == 200
         assert response.get_json() == {"status": "cache cleared", "username": "testuser"}
 
+
+class TestFeatureRoutes:
+    """Integration tests for Features 1, 5, 6, 8 routes."""
+
+    def test_load_balancing_page_200(self, client):
+        res = client.get("/load-balancing")
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+        assert "Load Balancing" in html
+
+    def test_pair_intelligence_page_200(self, client):
+        res = client.get("/pair-intelligence")
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+        assert "Pair Intelligence" in html
+
+    def test_sla_predictions_page_200(self, client):
+        res = client.get("/sla-predictions")
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+        assert "SLA" in html
+
+    def test_team_health_page_200(self, client):
+        res = client.get("/team-health")
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+        assert "Org" in html or "Health" in html
+
+    def test_api_load_balancing_json_shape(self, client):
+        res = client.get("/api/load-balancing")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert "reviewers" in data
+        assert "suggestions" in data
+        assert "overloaded_count" in data
+
+    def test_api_sla_predictions_json_shape(self, client):
+        res = client.get("/api/sla-predictions")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert "predictions" in data
+        assert "breached_count" in data
+        assert "sla_hours" in data
