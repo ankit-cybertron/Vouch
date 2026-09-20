@@ -27,10 +27,15 @@
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg>
       Open
     </span>
-    {% else %}
+    {% elif pr.is_merged or pr.merged_at %}
     <span class="gh-state-badge merged">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 2.122a2.25 2.25 0 1 0-1.5 0v.878A2.25 2.25 0 0 0 5.75 8.5h4.5A2.25 2.25 0 0 0 12.5 6.25v-.878a2.25 2.25 0 1 0-1.5 0v.878a.75.75 0 0 1-.75.75h-4.5A.75.75 0 0 1 5 6.25v-.878ZM11.75 4a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM7.25 12a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Zm1.5 1.372a2.25 2.25 0 1 0-1.5 0v-1.872a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .74.75v1.872Z"></path></svg>
       Merged
+    </span>
+    {% else %}
+    <span class="gh-state-badge closed">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm10.03 8.28a.75.75 0 0 0-1.06-1.06L9 11.94l-1.47-1.47a.75.75 0 0 0-1.06 1.06L7.94 13l-1.47 1.47a.75.75 0 0 0 1.06 1.06L9 14.06l1.47 1.47a.75.75 0 0 0 1.06-1.06L10.06 13l1.47-1.47ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"></path></svg>
+      Closed
     </span>
     {% endif %}
 
@@ -38,8 +43,10 @@
       <strong>{{ pr.author }}</strong>
       {% if pr.state == 'open' %}
       opened this pull request with {{ pr.diff_lines }} lines diff across {{ pr.changed_files }} files
-      {% else %}
+      {% elif pr.is_merged or pr.merged_at %}
       merged {{ pr.changed_files }} files ({{ pr.diff_lines }} lines) on {{ pr.merged_at | fmt_date }}
+      {% else %}
+      closed this pull request without merging on {{ (pr.closed_at or pr.merged_at or pr.created_at) | fmt_date }}
       {% endif %}
     </div>
 
@@ -75,8 +82,9 @@
         {% endif %}
         <div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--color-border-muted); color:var(--color-fg-muted); font-size:12px; display:flex; flex-wrap:wrap; gap:16px;">
           <span>Diff: <strong>{{ pr.diff_lines }} lines</strong> (+{{ pr.additions }} / -{{ pr.deletions }}) across <strong>{{ pr.changed_files }} files</strong></span>
-          <span>Reviewer: <strong>{{ pr.reviewer or 'collaborator' }}</strong></span>
+          <span>Reviewer: {% if pr.reviewer and pr.reviewer not in ('collaborator', 'None', 'None requested', 'unassigned', '') %}<a href="/reviewer/{{ pr.reviewer }}" class="reviewer-link"><strong>{{ pr.reviewer }}</strong></a>{% else %}<strong>None requested</strong>{% endif %}</span>
           <span>Review duration: <strong>{{ (pr.review_duration_seconds or 0) // 60 }}m</strong></span>
+
         </div>
       </div>
     </div>
@@ -155,22 +163,116 @@
 
     <!-- AI Narrative Box -->
     <div class="gh-box" style="margin-bottom:20px;">
-      <div class="gh-box-header">
+      <div class="gh-box-header" style="display:flex; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:6px; font-weight:600;">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-done-fg);"><path d="M7.47 10.78a.75.75 0 0 0 1.06 0l3.75-3.75a.75.75 0 0 0-1.06-1.06L8.75 8.44V1.75a.75.75 0 0 0-1.5 0v6.69L4.78 5.97a.75.75 0 0 0-1.06 1.06l3.75 3.75Z"></path><path d="M2 13h12a1 1 0 0 1 0 2H2a1 1 0 0 1 0-2Z"></path></svg>
-          <span>Bedrock Claude 3 · Risk Narration</span>
+          <span id="ai-narration-title">
+            {% if pr.llm_provider and 'Groq' in pr.llm_provider %}
+              Groq Llama 3.3 · Risk Narration
+            {% else %}
+              Bedrock Claude 3 · Risk Narration
+            {% endif %}
+          </span>
         </div>
-        {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
-        <span class="gh-label gh-label-confidence">AWS Bedrock Claude 3</span>
-        {% else %}
-        <span class="gh-label gh-label-confidence">(disconnected)</span>
-        {% endif %}
+        <div style="display:flex; align-items:center; gap:8px;">
+          {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
+            {% if pr.llm_provider and 'Groq' in pr.llm_provider %}
+              <span class="gh-label" id="ai-narration-badge" style="background:rgba(245, 80, 54, 0.12); color:#f55036; border:1px solid rgba(245, 80, 54, 0.4); font-weight:600;">{{ pr.llm_provider }}</span>
+            {% else %}
+              <span class="gh-label gh-label-confidence" id="ai-narration-badge">AWS Bedrock Claude 3</span>
+            {% endif %}
+          {% else %}
+            <span class="gh-label gh-label-confidence" id="ai-narration-badge">(disconnected)</span>
+          {% endif %}
+        </div>
       </div>
-      <div style="padding:16px; font-size:14px; line-height:1.6; color:var(--color-fg-default); background-color:var(--color-canvas-default);">
+      <div id="ai-narration-body" style="padding:16px; font-size:14px; line-height:1.6; color:var(--color-fg-default); background-color:var(--color-canvas-default);">
         {% if pr.bedrock_status == 'connected' and pr.bedrock_explanation and pr.bedrock_explanation != '(disconnected)' %}
-          {{ pr.bedrock_explanation }}
+          <div id="ai-narration-text" style="font-style:normal;">{{ pr.bedrock_explanation }}</div>
         {% else %}
-          <span style="color:var(--color-fg-muted); font-style:italic;">(disconnected)</span>
+          <div id="groq-fallback-panel" style="border:1px solid var(--color-border-default); background:var(--color-canvas-subtle); border-radius:8px; padding:16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
+              <div style="display:flex; align-items:flex-start; gap:12px;">
+                <div style="width:36px; height:36px; border-radius:8px; background:rgba(245, 80, 54, 0.1); border:1px solid rgba(245, 80, 54, 0.25); display:flex; align-items:center; justify-content:center; color:#f55036; flex-shrink:0;">
+                  <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M9.504.43a1.5 1.5 0 0 1 1.264.508l4.5 5.5a1.5 1.5 0 0 1 0 1.924l-4.5 5.5a1.5 1.5 0 0 1-1.264.508H3.75A1.75 1.75 0 0 1 2 12.62V3.38C2 2.414 2.784 1.63 3.75 1.63h5.754ZM3.75 3.13a.25.25 0 0 0-.25.25v9.24c0 .138.112.25.25.25h5.754a.25.25 0 0 0 .194-.092l4.5-5.5a.25.25 0 0 0 0-.316l-4.5-5.5a.25.25 0 0 0-.194-.092H3.75Z"></path>
+                  </svg>
+                </div>
+                <div>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-weight:600; font-size:13px; color:var(--color-fg-default);">On-Demand Risk Narration</span>
+                    {% if groq_configured %}
+                      <span class="gh-label" style="background:rgba(46,160,67,0.12); color:var(--color-success-fg); border:1px solid rgba(46,160,67,0.3); font-size:11px; font-weight:500;">
+                        ● Groq Ready (.env)
+                      </span>
+                    {% else %}
+                      <span class="gh-label" style="background:rgba(210,153,34,0.12); color:var(--color-attention-fg); border:1px solid rgba(210,153,34,0.3); font-size:11px; font-weight:500;">
+                        Bedrock Approval Pending
+                      </span>
+                    {% endif %}
+                  </div>
+                  <div style="font-size:12px; color:var(--color-fg-muted); margin-top:3px;">
+                    AWS Bedrock quota approval is pending. Generate high-confidence PR triage narration instantly using Groq.
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button type="button" id="btn-groq-explain" class="gh-btn" onclick="triggerGroqExplanation()" style="background:#f55036; border-color:#d93822; color:#fff; font-weight:600; display:inline-flex; align-items:center; gap:6px; padding:5px 12px; font-size:12px; border-radius:6px; cursor:pointer;">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M9.504.43a1.5 1.5 0 0 1 1.264.508l4.5 5.5a1.5 1.5 0 0 1 0 1.924l-4.5 5.5a1.5 1.5 0 0 1-1.264.508H3.75A1.75 1.75 0 0 1 2 12.62V3.38C2 2.414 2.784 1.63 3.75 1.63h5.754ZM3.75 3.13a.25.25 0 0 0-.25.25v9.24c0 .138.112.25.25.25h5.754a.25.25 0 0 0 .194-.092l4.5-5.5a.25.25 0 0 0 0-.316l-4.5-5.5a.25.25 0 0 0-.194-.092H3.75Z"></path>
+                  </svg>
+                  <span>Explain with Groq</span>
+                </button>
+                <button type="button" id="btn-toggle-key-input" class="gh-btn gh-btn-sm" onclick="toggleGroqKeyModal()" style="font-size:12px; color:var(--color-fg-muted);">
+                  Key
+                </button>
+              </div>
+            </div>
+
+            <!-- Inline API key input modal/drawer (shown if key needs entry or update) -->
+            <div id="groq-key-modal" style="display:none; margin-top:14px; padding:14px; background:var(--color-canvas-default); border:1px solid var(--color-border-default); border-radius:6px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                <div style="font-size:12px; font-weight:600; color:var(--color-fg-default);">
+                  Enter Groq API Key
+                </div>
+                <span style="font-size:11px; color:var(--color-fg-muted);">
+                  Or add <code>GROQ_API_KEY=gsk_...</code> to <code>.env</code>
+                </span>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <input type="password" id="groq-api-key-input" placeholder="gsk_..." class="gh-input" style="flex:1; font-family:ui-monospace, SFMono-Regular, monospace; font-size:12px; padding:6px 10px; border-radius:6px; border:1px solid var(--color-border-default);" />
+                <button type="button" class="gh-btn" onclick="submitGroqKey()" style="background:#f55036; border-color:#d93822; color:#fff; font-weight:600; padding:6px 14px; font-size:12px; border-radius:6px;">
+                  Save & Generate
+                </button>
+                <button type="button" class="gh-btn gh-btn-sm" onclick="document.getElementById('groq-key-modal').style.display='none'">
+                  Cancel
+                </button>
+              </div>
+              <div id="groq-key-error" style="color:var(--color-danger-fg); font-size:12px; margin-top:8px; display:none; background:rgba(207,34,46,0.08); padding:6px 10px; border-radius:4px; border:1px solid rgba(207,34,46,0.2);"></div>
+            </div>
+
+            <!-- Error Banner -->
+            <div id="groq-error-banner" style="display:none; margin-top:14px; padding:10px 12px; background:rgba(207,34,46,0.08); border:1px solid rgba(207,34,46,0.3); border-radius:6px; color:var(--color-danger-fg); font-size:12px;">
+              <div style="display:flex; align-items:flex-start; gap:8px;">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0; margin-top:1px;">
+                  <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path>
+                </svg>
+                <div style="flex:1;">
+                  <span id="groq-error-text"></span>
+                </div>
+                <button type="button" class="gh-btn gh-btn-sm" onclick="document.getElementById('groq-error-banner').style.display='none'" style="font-size:10px; padding:1px 6px;">✕</button>
+              </div>
+            </div>
+
+            <!-- Loading Spinner State -->
+            <div id="groq-loading-state" style="display:none; margin-top:14px; align-items:center; gap:10px; color:var(--color-fg-muted); font-size:13px; background:var(--color-canvas-default); padding:12px; border-radius:6px; border:1px solid var(--color-border-default);">
+              <svg class="gh-spin" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Z" opacity=".2"/>
+                <path fill-rule="evenodd" d="M8 0a8 8 0 0 1 8 8h-1.5A6.5 6.5 0 0 0 8 1.5V0Z"/>
+              </svg>
+              <span>Calling Groq on-demand fallback for instant risk narration...</span>
+            </div>
+          </div>
         {% endif %}
       </div>
     </div>
@@ -181,8 +283,10 @@
         <div style="font-weight:600;">Model 1 · Change Risk Attribution</div>
         <span class="gh-label gh-label-confidence">SHAP Weights</span>
       </div>
-      <div style="padding:20px;">
-        <canvas id="riskFeaturesChart" height="160" aria-label="Feature contribution chart"></canvas>
+      <div style="padding:16px 20px;">
+        <div style="position:relative; height:180px; width:100%;">
+          <canvas id="riskFeaturesChart" aria-label="Feature contribution chart"></canvas>
+        </div>
         <div style="margin-top:16px; border-top:1px solid var(--color-border-muted); padding-top:12px;">
           {% for f in pr.top_features %}
           <div style="display:flex; align-items:center; justify-content:space-between; font-size:13px; padding:4px 0;">
@@ -260,7 +364,7 @@
                         <span>{{ item.path }}{% if item.line %}:{{ item.line }}{% endif %}</span>
                       </div>
                       {% if item.diff_hunk %}
-                        <pre class="gh-diff-snippet" style="margin:0; padding:8px 10px; background:#f6f8fa; border-radius:4px; font-size:11px; overflow-x:auto; border:1px solid #e1e4e8; font-family:ui-monospace, monospace; line-height:1.4; max-width:100%; box-sizing:border-box; word-break:break-all; overflow-wrap:anywhere;"><code>{{ item.diff_hunk }}</code></pre>
+                        <pre class="gh-diff-snippet" style="margin:0; padding:8px 10px; background:var(--color-canvas-default); color:var(--color-fg-default); border-radius:4px; font-size:11px; overflow-x:auto; border:1px solid var(--color-border-default); font-family:ui-monospace, monospace; line-height:1.4; max-width:100%; box-sizing:border-box; word-break:break-all; overflow-wrap:anywhere;"><code>{{ item.diff_hunk }}</code></pre>
                       {% endif %}
                     </div>
                   {% endif %}
@@ -307,9 +411,16 @@
         <span>Reviewers</span>
       </div>
       <div class="gh-sidebar-content" style="display:flex; align-items:center; gap:8px;">
-        <img src="https://github.com/{{ pr.reviewer or 'octocat' }}.png" onerror="this.src='https://github.com/github.png'" class="gh-avatar" alt="{{ pr.reviewer }}" />
-        <strong>{{ pr.reviewer or 'None requested' }}</strong>
+        {% if pr.reviewer and pr.reviewer not in ('collaborator', 'None', 'None requested', 'unassigned', '') %}
+        <a href="/reviewer/{{ pr.reviewer }}" class="reviewer-link" style="display:flex; align-items:center; gap:8px;">
+          <img src="https://github.com/{{ pr.reviewer }}.png" onerror="this.src='https://github.com/github.png'" class="gh-sidebar-avatar" title="@{{ pr.reviewer }}" alt="{{ pr.reviewer }}" />
+          <strong style="font-size:13px; color:var(--color-fg-default);">{{ pr.reviewer }}</strong>
+        </a>
+        {% else %}
+        <span style="font-size:13px; color:var(--color-fg-muted);">None requested</span>
+        {% endif %}
       </div>
+
     </div>
 
     <!-- Assignees -->
@@ -318,8 +429,12 @@
         <span>Assignees</span>
       </div>
       <div class="gh-sidebar-content" style="display:flex; align-items:center; gap:8px;">
-        <img src="https://github.com/{{ pr.author }}.png" onerror="this.src='https://github.com/github.png'" class="gh-avatar" alt="{{ pr.author }}" />
-        <strong>{{ pr.author }}</strong>
+        {% if pr.assignee or (pr.author and pr.author not in ('unknown', 'collaborator')) %}
+        <img src="https://github.com/{{ pr.assignee or pr.author }}.png" onerror="this.src='https://github.com/github.png'" class="gh-sidebar-avatar" title="@{{ pr.assignee or pr.author }}" alt="{{ pr.assignee or pr.author }}" />
+        <strong style="font-size:13px; color:var(--color-fg-default);">{{ pr.assignee or pr.author }}</strong>
+        {% else %}
+        <span style="font-size:13px; color:var(--color-fg-muted);">Unassigned</span>
+        {% endif %}
       </div>
     </div>
 
@@ -444,14 +559,16 @@
           datasets: [{
             label: 'Feature Contribution',
             data: featureData.values,
-            backgroundColor: '#0969da',
+            backgroundColor: '#58a6ff',
             borderRadius: 4,
             borderSkipped: false,
+            barThickness: 14,
           }]
         },
         options: {
           indexAxis: 'y',
           responsive: true,
+          maintainAspectRatio: false,
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -464,17 +581,135 @@
           },
           scales: {
             x: {
-              grid: { color: '#eaeef2' },
-              ticks: { font: { family: '-apple-system', size: 12 }, color: '#656d76' }
+              grid: { color: '#21262d' },
+              ticks: { font: { family: 'ui-monospace, monospace', size: 11 }, color: '#8b949e' }
             },
             y: {
               grid: { display: false },
-              ticks: { font: { family: '-apple-system', size: 12 }, color: '#1f2328' }
+              ticks: { font: { family: 'ui-monospace, monospace', size: 12 }, color: '#f0f6fc' }
             }
           }
         }
       });
     }
   })();
+
+  function toggleGroqKeyModal() {
+    const modal = document.getElementById('groq-key-modal');
+    if (!modal) return;
+    const isHidden = modal.style.display === 'none' || !modal.style.display;
+    modal.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+      const input = document.getElementById('groq-api-key-input');
+      if (input) input.focus();
+    }
+  }
+
+  function triggerGroqExplanation(apiKey) {
+    const btn = document.getElementById('btn-groq-explain');
+    const loadingState = document.getElementById('groq-loading-state');
+    const keyModal = document.getElementById('groq-key-modal');
+    const keyError = document.getElementById('groq-key-error');
+    const errorBanner = document.getElementById('groq-error-banner');
+    const errorText = document.getElementById('groq-error-text');
+
+    if (keyError) keyError.style.display = 'none';
+    if (errorBanner) errorBanner.style.display = 'none';
+    if (btn) btn.disabled = true;
+    if (loadingState) loadingState.style.display = 'flex';
+
+    const payload = {
+      pr_key: "{{ pr.pr_key or (pr.repo ~ '#' ~ pr.pr_number) }}",
+    };
+    if (apiKey) {
+      payload.groq_api_key = apiKey;
+    }
+
+    fetch('/api/explain/groq', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        const bodyEl = document.getElementById('ai-narration-body');
+        const badgeEl = document.getElementById('ai-narration-badge');
+        const titleEl = document.getElementById('ai-narration-title');
+
+        if (titleEl) titleEl.innerText = 'Groq · Risk Narration';
+        if (badgeEl) {
+          badgeEl.className = 'gh-label';
+          badgeEl.style.background = 'rgba(245, 80, 54, 0.12)';
+          badgeEl.style.color = '#f55036';
+          badgeEl.style.border = '1px solid rgba(245, 80, 54, 0.4)';
+          badgeEl.innerText = data.provider || 'Groq';
+        }
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div style="border-left:3px solid #f55036; padding-left:14px; margin:4px 0 14px 0;">
+              <div style="font-size:14px; line-height:1.6; color:var(--color-fg-default); font-weight:400;">
+                ${data.explanation}
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--color-border-muted); padding-top:10px;">
+              <span style="font-size:11px; color:var(--color-fg-muted); display:inline-flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#f55036;"></span>
+                Generated on-demand via <strong>${data.provider}</strong> (Bedrock quota pending)
+              </span>
+              <button class="gh-btn gh-btn-sm" onclick="triggerGroqExplanation()" style="font-size:11px; padding:3px 10px; cursor:pointer;">
+                Re-generate
+              </button>
+            </div>
+          `;
+        }
+      } else {
+        if (btn) btn.disabled = false;
+        if (loadingState) loadingState.style.display = 'none';
+
+        const rawErr = data.error || 'Failed to generate explanation.';
+        if (data.requires_key) {
+          if (keyModal) keyModal.style.display = 'block';
+          if (keyError) {
+            keyError.innerText = rawErr;
+            keyError.style.display = 'block';
+          }
+          const inputEl = document.getElementById('groq-api-key-input');
+          if (inputEl) inputEl.focus();
+        } else {
+          if (errorBanner && errorText) {
+            errorText.innerText = rawErr;
+            errorBanner.style.display = 'block';
+          } else {
+            alert('Groq explanation error: ' + rawErr);
+          }
+        }
+      }
+    })
+    .catch(err => {
+      if (btn) btn.disabled = false;
+      if (loadingState) loadingState.style.display = 'none';
+      if (errorBanner && errorText) {
+        errorText.innerText = 'Network error: ' + err.message;
+        errorBanner.style.display = 'block';
+      } else {
+        alert('Request failed: ' + err.message);
+      }
+    });
+  }
+
+  function submitGroqKey() {
+    const inputEl = document.getElementById('groq-api-key-input');
+    const key = (inputEl ? inputEl.value : '').trim();
+    if (!key) {
+      const keyError = document.getElementById('groq-key-error');
+      if (keyError) {
+        keyError.innerText = 'Please enter a valid Groq API key (starts with gsk_).';
+        keyError.style.display = 'block';
+      }
+      return;
+    }
+    triggerGroqExplanation(key);
+  }
 </script>
 {% endblock %}

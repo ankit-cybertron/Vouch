@@ -67,7 +67,12 @@ class TestGitHubAppInstallRoute:
         assert res.headers["Location"] == "/repos"
 
         with client.session_transaction() as sess:
+<<<<<<< HEAD
             assert sess["github_token"] == "gho_host_token_999"
+=======
+            assert "github_token" not in sess
+            assert "auth_sid" in sess
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
             assert sess["auth_type"] == "oauth"
             assert sess["user_login"] == mock_github_user["login"]
 

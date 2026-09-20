@@ -42,6 +42,8 @@ os.environ["BASELINES_TABLE"] = "test-baselines"
 os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ACCESS_KEY_ID"] = "testing"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+os.environ["SECRET_KEY"] = "test-secret-key-fixture-12345"
+
 
 
 @pytest.fixture
@@ -151,3 +153,14 @@ def mock_github_app_auth():
     with patch("dashboard.app.github_app_auth", mock), \
          patch("dashboard.github_app.github_app_auth", mock):
         yield mock
+<<<<<<< HEAD
+=======
+
+
+@pytest.fixture
+def mock_github_404():
+    """Mock GitHub API returning 404 Not Found for user profile lookup."""
+    with patch("dashboard.app._fetch_gh_user_profile", return_value=({}, True, False)):
+        yield
+
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31

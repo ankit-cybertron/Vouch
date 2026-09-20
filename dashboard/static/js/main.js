@@ -22,7 +22,8 @@
   const cardCount = document.getElementById('card-count');
   const statTotal = document.getElementById('stat-total');
   const statFlagged = document.getElementById('stat-flagged');
-  const statRequeued = document.getElementById('stat-requeued');
+  const statMedium = document.getElementById('stat-medium') || document.getElementById('stat-requeued');
+  const statRequeued = statMedium;
   const statAvg = document.getElementById('stat-avg');
 
   // Helper: check if a string looks like a GitHub repo (owner/repo or URL)
@@ -211,9 +212,9 @@
 
       // Update KPIs
       if (data.stats) {
-        if (statTotal) statTotal.textContent = data.stats.total_scored;
-        if (statFlagged) statFlagged.textContent = data.stats.high_risk_flagged;
-        if (statRequeued) statRequeued.textContent = data.stats.requeued_today;
+        if (statTotal) statTotal.textContent = data.stats.total_prs || data.stats.total_scored;
+        if (statFlagged) statFlagged.textContent = data.stats.high_risk_flagged || 0;
+        if (statMedium) statMedium.textContent = data.stats.medium_risk_count !== undefined ? data.stats.medium_risk_count : (data.stats.requeued_today || 0);
         if (statAvg) statAvg.textContent = Number(data.stats.avg_residual_risk).toFixed(2);
       }
 
@@ -502,40 +503,141 @@
     });
   });
 
-  // Clear all repositories button
-  const clearAllBtn = document.getElementById('clear-all-repos-btn');
-  if (clearAllBtn) {
-    clearAllBtn.addEventListener('click', async function () {
-      if (!confirm('Are you sure you want to clear all fetched repositories and pull requests?')) return;
-      try {
-        await fetch('/api/clear-repos', { method: 'POST' });
-        window.location.reload();
-      } catch (err) {
-        alert('Failed to clear: ' + err.message);
-      }
-    });
-  }
+  // ─── Repositories Catalog View Controller (Initial / Popular / Cleared) ───
+  function initReposView() {
+    const grid = document.getElementById('repo-grid');
+    if (!grid) return;
 
-  // Client-side repository search filter on repos.html
-  if (repoSearchInput) {
-    repoSearchInput.addEventListener('input', function () {
-      const q = this.value.trim().toLowerCase();
-      const cards = document.querySelectorAll('.gh-repo-card');
+    const cards = Array.from(document.querySelectorAll('.gh-repo-card'));
+    const badge = document.getElementById('repos-total-badge');
+    const clearAllBtn = document.getElementById('clear-all-repos-btn');
+    const discoverPopularBtn = document.getElementById('discover-popular-btn');
+    const emptyState = document.getElementById('repo-empty-state');
+    const emptyDiscoverBtn = document.getElementById('empty-discover-popular-btn');
+    const emptyRestoreInitialBtn = document.getElementById('empty-restore-initial-btn');
+    const searchInput = document.getElementById('repo-search-input');
+
+    // If redirected from auth or URL specifies view=initial, reset saved view
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('from_auth') || urlParams.get('view') === 'initial') {
+      sessionStorage.removeItem('vouch_repos_view');
+    }
+
+    let currentView = sessionStorage.getItem('vouch_repos_view') || 'initial';
+    if (urlParams.get('view') === 'popular' || urlParams.get('view') === 'all') {
+      currentView = 'popular';
+      sessionStorage.setItem('vouch_repos_view', 'popular');
+    }
+
+    function applyView(view) {
+      currentView = view;
+      sessionStorage.setItem('vouch_repos_view', view);
+
+      if (view === 'cleared') {
+        cards.forEach(c => c.style.display = 'none');
+        if (emptyState) emptyState.style.display = 'block';
+        if (clearAllBtn) clearAllBtn.style.display = 'none';
+        if (badge) badge.textContent = '0';
+        return;
+      }
+
+      if (emptyState) emptyState.style.display = 'none';
+      if (clearAllBtn) clearAllBtn.style.display = 'inline-flex';
+
       let visibleCount = 0;
+      if (view === 'popular') {
+        cards.forEach(c => {
+          c.style.display = 'flex';
+          visibleCount++;
+        });
+        if (badge) badge.textContent = visibleCount;
+      } else {
+        // 'initial': show only ankit-cybertron/Vouch (data-is-initial="true")
+        cards.forEach(c => {
+          const isInitial = c.getAttribute('data-is-initial') === 'true';
+          if (isInitial) {
+            c.style.display = 'flex';
+            visibleCount++;
+          } else {
+            c.style.display = 'none';
+          }
+        });
 
-      cards.forEach(function (card) {
-        const name = (card.getAttribute('data-name') || '').toLowerCase();
-        const text = card.textContent.toLowerCase();
-        const matches = !q || name.includes(q) || text.includes(q);
-        card.style.display = matches ? 'flex' : 'none';
-        if (matches) visibleCount++;
-      });
+        // Fallback: If no card marked initial, show the first card
+        if (visibleCount === 0 && cards.length > 0) {
+          cards[0].style.display = 'flex';
+          visibleCount = 1;
+        }
 
-      if (reposTotalBadge) {
-        reposTotalBadge.textContent = visibleCount;
+        if (badge) badge.textContent = visibleCount;
       }
-    });
+    }
+
+    // Apply view on load
+    applyView(currentView);
+
+    // Clear All button: removes cards from screen only (NEVER touches backend)
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', function () {
+        applyView('cleared');
+      });
+    }
+
+    // Discover Popular: reveal all database popular repos
+    function handleDiscoverClick(btn) {
+      const popularCards = cards.filter(c => c.getAttribute('data-is-initial') !== 'true');
+      if (popularCards.length > 0) {
+        applyView('popular');
+      } else {
+        // If database had no popular repos pre-loaded, fetch via backend
+        handleDiscoverPopular(btn || discoverPopularBtn);
+      }
+    }
+
+    if (discoverPopularBtn) {
+      discoverPopularBtn.addEventListener('click', function () {
+        handleDiscoverClick(this);
+      });
+    }
+    if (emptyDiscoverBtn) {
+      emptyDiscoverBtn.addEventListener('click', function () {
+        handleDiscoverClick(this);
+      });
+    }
+    if (emptyRestoreInitialBtn) {
+      emptyRestoreInitialBtn.addEventListener('click', function () {
+        applyView('initial');
+      });
+    }
+
+    // Client-side search input
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        const q = this.value.trim().toLowerCase();
+        if (!q) {
+          applyView(currentView);
+          return;
+        }
+
+        if (emptyState) emptyState.style.display = 'none';
+        let matchCount = 0;
+        cards.forEach(c => {
+          const name = (c.getAttribute('data-name') || '').toLowerCase();
+          const text = c.textContent.toLowerCase();
+          const matches = name.includes(q) || text.includes(q);
+          c.style.display = matches ? 'flex' : 'none';
+          if (matches) matchCount++;
+        });
+
+        if (badge) badge.textContent = matchCount;
+        if (matchCount === 0 && emptyState) {
+          emptyState.style.display = 'block';
+        }
+      });
+    }
   }
+
+  initReposView();
 
   // ─── Refetch Repository PRs ──────────────────────────────
   async function handleRefetchRepo(owner, repo, btnElement) {
@@ -623,19 +725,6 @@
     }
   }
 
-  const discoverPopularBtn = document.getElementById('discover-popular-btn');
-  if (discoverPopularBtn) {
-    discoverPopularBtn.addEventListener('click', function () {
-      handleDiscoverPopular(this);
-    });
-  }
-
-  const emptyDiscoverPopularBtn = document.getElementById('empty-discover-popular-btn');
-  if (emptyDiscoverPopularBtn) {
-    emptyDiscoverPopularBtn.addEventListener('click', function () {
-      handleDiscoverPopular(this);
-    });
-  }
 
   // ─── On-Demand Score for Older PRs ───────────────────────
   document.querySelectorAll('.run-model-btn').forEach(function (btn) {
@@ -727,10 +816,22 @@ window.handleTokenSubmit = async function (e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: token }),
     });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
       if (err) {
-        err.textContent = data.error || 'Failed to connect token. Please check validity.';
+        err.textContent = res.status ? `Server error (HTTP ${res.status}). Please try again.` : 'Unexpected response from server.';
+        err.style.display = 'block';
+      }
+      btn.disabled = false;
+      btn.textContent = origText;
+      return;
+    }
+
+    if (!res.ok || !data || !data.success) {
+      if (err) {
+        err.textContent = (data && data.error) ? data.error : 'Failed to connect token. Please check validity.';
         err.style.display = 'block';
       }
       btn.disabled = false;
@@ -744,11 +845,12 @@ window.handleTokenSubmit = async function (e) {
     }
 
     setTimeout(() => {
+      try { sessionStorage.removeItem('vouch_repos_view'); } catch (e) {}
       window.location.reload();
     }, 800);
   } catch (ex) {
     if (err) {
-      err.textContent = 'Network error: ' + ex.message;
+      err.textContent = 'Connection error: Unable to reach server. Please check your network connection.';
       err.style.display = 'block';
     }
     btn.disabled = false;
@@ -808,3 +910,20 @@ setInterval(async function () {
   } catch (e) { }
 }, 30000);
 
+<<<<<<< HEAD
+=======
+
+// Reviewer search keyboard shortcut: press / to focus search
+document.addEventListener('keydown', function(e) {
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT'
+      && document.activeElement.tagName !== 'TEXTAREA') {
+    const searchInput = document.getElementById('reviewer-search-input');
+    if (searchInput) {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  }
+});
+
+
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31

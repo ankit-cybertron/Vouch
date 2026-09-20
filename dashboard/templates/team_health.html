@@ -4,6 +4,68 @@
 
 {% block content %}
 
+{% if mode == 'search' %}
+<!-- ── Clean Hero Repository Selector (Team Health) ────────── -->
+<div class="hero-search-page">
+  <div class="hero-search-icon">
+    <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M1.5 1.75V13.5h13.75a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 1.5 0Zm14.28 2.53-5.25 5.25a.75.75 0 0 1-1.06 0L7 7.06 2.53 11.53a.75.75 0 0 1-1.06-1.06l5-5a.75.75 0 0 1 1.06 0l2.47 2.47 4.72-4.72a.75.75 0 0 1 1.06 1.06Z"></path>
+    </svg>
+  </div>
+  <h1 class="hero-search-title">Team Review Health &amp; Fatigue Analytics</h1>
+  <p class="hero-search-desc">
+    Continuous inspection of code-review thoroughness, reviewer overload, <strong>Reviewer Fatigue Index</strong>, <strong>Rubber-Stamp Index</strong>, and module safety across engineering teams. Select a repository to begin analysis.
+  </p>
+
+  {% if total_repos and total_repos > 0 %}
+  <div class="hero-search-stats">
+    <span>Monitoring <strong>{{ total_repos }}</strong> repositories</span>
+  </div>
+  {% endif %}
+
+  <form method="get" action="/team-health" onsubmit="event.preventDefault(); const val=document.getElementById('team-repo-search-input').value.trim(); if(val){ window.location.href='/team-health?repo='+encodeURIComponent(val); }">
+    <div class="search-input-group" style="position:relative;">
+      <span class="search-prefix">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path>
+        </svg>
+      </span>
+      <input
+        type="text"
+        id="team-repo-search-input"
+        class="search-input"
+        placeholder="Type repository name (e.g. kubernetes/kubernetes, react, flask)…"
+        autocomplete="off"
+        data-smart-repo="true"
+        data-target-template="/team-health?repo={owner}/{repo}"
+        autofocus
+      />
+      <button type="submit" class="gh-btn gh-btn-primary gh-btn-sm" style="margin-right: 4px;">
+        View Health
+      </button>
+    </div>
+  </form>
+
+  <div class="hero-chips-section">
+    <div class="hero-chips-title">Select Repository or View Aggregate</div>
+    <div class="hero-repo-chips">
+      <a href="/team-health?repo=all" class="hero-repo-chip" style="font-weight: 600; border-color: var(--color-accent-emphasis); color: var(--color-accent-fg);">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.75V13.5h13.75a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 1.5 0Zm14.28 2.53-5.25 5.25a.75.75 0 0 1-1.06 0L7 7.06 2.53 11.53a.75.75 0 0 1-1.06-1.06l5-5a.75.75 0 0 1 1.06 0l2.47 2.47 4.72-4.72a.75.75 0 0 1 1.06 1.06Z"></path></svg>
+        All Repositories (Aggregate)
+      </a>
+      {% if recent_repos %}
+        {% for r in recent_repos %}
+        <a href="/team-health?repo={{ r.full_name or (r.owner ~ '/' ~ r.repo) }}" class="hero-repo-chip">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path></svg>
+          <span>{{ r.full_name or (r.owner ~ '/' ~ r.repo) }}</span>
+        </a>
+        {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% else %}
+
 <!-- ── Page Header & Repository Filter ──────────────────────── -->
 <div class="gh-board-header" style="margin-bottom:24px;">
   <div>
@@ -18,7 +80,10 @@
     </p>
   </div>
 
-  <div style="display:flex; align-items:center; gap:12px;">
+  <div style="display:flex; align-items:center; gap:8px;">
+    <a href="/team-health" class="gh-btn gh-btn-sm" style="display:inline-flex; align-items:center; gap:4px;" title="Back to repository selector">
+      ← Change Repository
+    </a>
     <form method="get" action="/team-health" style="display:flex; align-items:center; gap:8px;">
       <label for="repo-filter-select" style="font-size:12px; font-weight:600; color:var(--color-fg-muted);">Repository:</label>
       <select id="repo-filter-select" name="repo" onchange="this.form.submit()" class="gh-btn gh-btn-sm" style="background-color:var(--color-canvas-default); border-color:var(--color-border-default); padding:4px 10px; font-size:12px; cursor:pointer;">
@@ -38,6 +103,12 @@
       {{ health.rubber_stamp_rate }}%
     </div>
     <div class="gh-kpi-label">Rubber-Stamp Index</div>
+    <div style="height:4px; background:var(--color-canvas-default); border-radius:2px; margin-top:6px; overflow:hidden;">
+      {% set rubber_color = 'var(--color-danger-fg)' if health.rubber_stamp_rate > 35 else ('var(--color-attention-fg)' if health.rubber_stamp_rate > 20 else 'var(--color-success-fg)') %}
+      <div data-fill-width="{{ health.rubber_stamp_rate }}"
+           style="--fill-pct: {{ health.rubber_stamp_rate }}%; --fill-bg: {{ rubber_color }}; width: var(--fill-pct, 0%); background: var(--fill-bg); height: 100%;">
+      </div>
+    </div>
     <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">Approvals with minimal scrutiny</div>
   </div>
 
@@ -46,6 +117,12 @@
       {{ health.fatigue_index }}%
     </div>
     <div class="gh-kpi-label">Reviewer Fatigue Index</div>
+    <div style="height:4px; background:var(--color-canvas-default); border-radius:2px; margin-top:6px; overflow:hidden;">
+      {% set fatigue_color = 'var(--color-danger-fg)' if health.fatigue_index > 40 else ('var(--color-attention-fg)' if health.fatigue_index > 20 else 'var(--color-success-fg)') %}
+      <div data-fill-width="{{ health.fatigue_index }}"
+           style="--fill-pct: {{ health.fatigue_index }}%; --fill-bg: {{ fatigue_color }}; width: var(--fill-pct, 0%); background: var(--fill-bg); height: 100%;">
+      </div>
+    </div>
     <div style="font-size:11px; color:var(--color-fg-muted); margin-top:4px;">Reviewers under high/moderate load</div>
   </div>
 
@@ -95,13 +172,14 @@
         {% for r in health.reviewers %}
         <tr style="border-bottom:1px solid var(--color-border-muted);">
           <td style="padding:12px 16px;">
-            <div style="display:flex; align-items:center; gap:8px; font-weight:600; color:var(--color-fg-default);">
+            <a href="/reviewer/{{ r.login }}" class="reviewer-link" style="display:flex; align-items:center; gap:8px; font-weight:600; color:var(--color-fg-default);">
               <span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--color-canvas-subtle); border:1px solid var(--color-border-default); font-size:11px; text-transform:uppercase;">
                 {{ r.login[:2] }}
               </span>
               @{{ r.login }}
-            </div>
+            </a>
           </td>
+
           <td style="padding:12px 16px; font-weight:600;">
             {{ r.prs_reviewed }} PR{{ 's' if r.prs_reviewed != 1 else '' }}
           </td>
@@ -213,7 +291,9 @@
           <span style="font-weight:600; color:var(--color-danger-fg);">{{ health.pacing.rushed }} PRs</span>
         </div>
         <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
-          <div data-fill-width="{{ health.pacing.rushed_pct }}%" style="height:100%; width:{{ health.pacing.rushed_pct }}%; background:var(--color-danger-fg);"></div>
+          <div data-fill-width="{{ health.pacing.rushed_pct }}"
+               style="--fill-pct: {{ health.pacing.rushed_pct }}%; width: var(--fill-pct, 0%); background: var(--color-danger-fg); height: 100%;">
+          </div>
         </div>
       </div>
 
@@ -223,7 +303,9 @@
           <span style="font-weight:600; color:var(--color-attention-fg);">{{ health.pacing.brief }} PRs</span>
         </div>
         <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
-          <div data-fill-width="{{ health.pacing.brief_pct }}%" style="height:100%; width:{{ health.pacing.brief_pct }}%; background:var(--color-attention-fg);"></div>
+          <div data-fill-width="{{ health.pacing.brief_pct }}"
+               style="--fill-pct: {{ health.pacing.brief_pct }}%; width: var(--fill-pct, 0%); background: var(--color-attention-fg); height: 100%;">
+          </div>
         </div>
       </div>
 
@@ -233,7 +315,9 @@
           <span style="font-weight:600; color:var(--color-success-fg);">{{ health.pacing.standard }} PRs</span>
         </div>
         <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
-          <div data-fill-width="{{ health.pacing.standard_pct }}%" style="height:100%; width:{{ health.pacing.standard_pct }}%; background:var(--color-success-fg);"></div>
+          <div data-fill-width="{{ health.pacing.standard_pct }}"
+               style="--fill-pct: {{ health.pacing.standard_pct }}%; width: var(--fill-pct, 0%); background: var(--color-success-fg); height: 100%;">
+          </div>
         </div>
       </div>
 
@@ -243,7 +327,9 @@
           <span style="font-weight:600; color:var(--color-done-fg);">{{ health.pacing.thorough }} PRs</span>
         </div>
         <div style="height:8px; background:var(--color-canvas-subtle); border-radius:4px; overflow:hidden;">
-          <div data-fill-width="{{ health.pacing.thorough_pct }}%" style="height:100%; width:{{ health.pacing.thorough_pct }}%; background:var(--color-done-fg);"></div>
+          <div data-fill-width="{{ health.pacing.thorough_pct }}"
+               style="--fill-pct: {{ health.pacing.thorough_pct }}%; width: var(--fill-pct, 0%); background: var(--color-done-fg); height: 100%;">
+          </div>
         </div>
       </div>
     </div>
@@ -310,4 +396,15 @@
 
 </div>
 
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function() {
+    document.querySelectorAll('[data-fill-width]').forEach(function(el) {
+      el.style.width = (el.getAttribute('data-fill-width') || '0') + '%';
+    });
+  })();
+</script>
 {% endblock %}

@@ -10,6 +10,11 @@ gunicorn>=22.0.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 
+# GitHub App Authentication (RS256 JWT + Installation Access Tokens)
+PyJWT>=2.8.0
+cryptography>=42.0.0
+
+
 # Repository Mining & Feature Engineering
 GitPython>=3.1.40
 pandas>=2.2.0

@@ -19,7 +19,14 @@ import re
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
+<<<<<<< HEAD
 from urllib.parse import urlparse, urlencode
+=======
+import logging
+from urllib.parse import urlparse, urlencode
+
+logger = logging.getLogger(__name__)
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 
 from markupsafe import Markup
 import requests
@@ -33,6 +40,7 @@ from flask import (
     url_for,
     has_request_context,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from dashboard.store import get_store
 from dashboard.version import get_version_info, __version__
@@ -51,8 +59,14 @@ try:
             break
 except ImportError:
     pass
+<<<<<<< HEAD
+=======
+
+from dashboard.session_store import get_session_store
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 
 store = get_store()
+session_store = get_session_store()
 
 
 def _compute_board_stats(prs: list[dict] | None = None) -> dict:
@@ -61,11 +75,15 @@ def _compute_board_stats(prs: list[dict] | None = None) -> dict:
         prs = list(LIVE_PRS_CACHE.values()) if "LIVE_PRS_CACHE" in globals() else []
     total = len(prs)
     high_risk = sum(1 for p in prs if p.get("risk_tier") == "high")
-    requeued = sum(1 for p in prs if p.get("residual_risk", 0) >= 0.65)
-    avg_res = round(sum(p.get("residual_risk", 0) for p in prs) / max(total, 1), 2)
+    medium_risk = sum(1 for p in prs if p.get("risk_tier") == "medium")
+    requeued = sum(1 for p in prs if (p.get("residual_risk") or 0) >= 0.65)
+    scored_prs = [p for p in prs if p.get("residual_risk") is not None]
+    avg_res = round(sum(p["residual_risk"] for p in scored_prs) / max(len(scored_prs), 1), 2) if scored_prs else 0.0
     return {
         "total_scored": total,
+        "total_prs": total,
         "high_risk_flagged": high_risk,
+        "medium_risk_count": medium_risk,
         "requeued_today": requeued,
         "avg_residual_risk": avg_res,
         "precision_at_20": f"{min(requeued, 9)}/20" if total else "0/20",
@@ -77,9 +95,46 @@ app = Flask(
     template_folder=os.path.join(DASHBOARD_DIR, "templates"),
     static_folder=os.path.join(DASHBOARD_DIR, "static"),
 )
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vouch-dev-secret")
+
+_secret_key = os.environ.get("SECRET_KEY", "").strip()
+if not _secret_key:
+    raise RuntimeError(
+        "SECRET_KEY environment variable is not configured. "
+        "A secure SECRET_KEY must be provided via environment or AWS Secrets Manager."
+    )
+app.config["SECRET_KEY"] = _secret_key
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
 app.jinja_env.globals.update(max=max, min=min)
+
+# Support reverse-proxy headers (Elastic Beanstalk, ngrok, AWS ALB, etc.)
+# This ensures request.host_url and url_for() produce the correct scheme/host.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+def _app_base_url() -> str:
+    """
+    Return the canonical public base URL for this Vouch instance.
+
+    Uses APP_BASE_URL env var when set (required for deployed environments).
+    Falls back to Flask's request.host_url for localhost development.
+    """
+    base = os.environ.get("APP_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return base
+    if has_request_context():
+        return request.host_url.rstrip("/")
+    return "http://localhost:5001"
+
+
+def _oauth_callback_uri() -> str:
+    """Build the exact GitHub OAuth callback URI, respecting APP_BASE_URL."""
+    return _app_base_url() + url_for("auth_github_callback")
+
+
+def _app_setup_callback_uri() -> str:
+    """Build the GitHub App post-install callback URI, respecting APP_BASE_URL."""
+    return _app_base_url() + url_for("auth_github_app_callback")
 
 
 def _resolve_github_token() -> str:
@@ -93,6 +148,7 @@ def _resolve_github_token() -> str:
       4. git credential helper
     """
     # Priority 0 — GitHub App Installation Access Token
+<<<<<<< HEAD
     try:
         if has_request_context() and github_app_auth.is_configured():
             installation_id = session.get("installation_id")
@@ -104,11 +160,31 @@ def _resolve_github_token() -> str:
     except Exception:
         pass
 
+=======
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     try:
-        if has_request_context() and session.get("github_token"):
-            tok = str(session["github_token"]).strip()
-            if tok:
-                return tok
+        if has_request_context() and github_app_auth.is_configured():
+            installation_id = session.get("installation_id")
+            if installation_id:
+                try:
+                    return github_app_auth.get_installation_token(installation_id)
+                except Exception as exc:
+                    print(f"[WARN] GitHub App token fetch failed: {exc}")
+    except Exception:
+        pass
+
+    # Priority 1 — User's active session token resolved server-side via auth_sid
+    try:
+        if has_request_context():
+            auth_sid = session.get("auth_sid")
+            if auth_sid:
+                tok = session_store.get_token(auth_sid)
+                if tok:
+                    return tok
+            if session.get("github_token"):
+                tok = str(session["github_token"]).strip()
+                if tok:
+                    return tok
     except Exception:
         pass
 
@@ -239,6 +315,9 @@ LANGUAGE_COLORS = {
 
 FETCHED_REPOS: dict[str, dict] = {}
 REPO_PRS_CACHE: dict[str, list[dict]] = {}
+_reviewer_cache: dict = {}   # {username: {"data": dict, "ts": float}}
+REVIEWER_CACHE_TTL: int = 300  # 5 minutes
+
 
 
 
@@ -296,7 +375,24 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     repo_full = pr_data.get("_repo") or pr_data.get("repo", "")
     state = pr_data.get("state", "open")
     created_at = pr_data.get("created_at", "")
-    merged_at = pr_data.get("merged_at") or pr_data.get("closed_at")
+    raw_merged_at = pr_data.get("merged_at")
+    raw_closed_at = pr_data.get("closed_at")
+    if raw_merged_at or pr_data.get("merged") is True or pr_data.get("is_merged") is True:
+        is_merged = True
+    elif pr_data.get("merged") is False or pr_data.get("is_merged") is False:
+        is_merged = False
+    elif raw_closed_at and not raw_merged_at:
+        # Real GitHub PR closed without merging has closed_at set and merged_at is null/None
+        is_merged = False
+    elif state == "closed":
+        # Backward compatibility for mock objects without closed_at or merged_at
+        is_merged = True
+    else:
+        is_merged = False
+
+    merged_at = raw_merged_at if is_merged else None
+    closed_at = raw_closed_at
+    is_closed_unmerged = (state == "closed" and not is_merged)
     pr_title = (pr_data.get("title") or "").strip()
     pr_body = (pr_data.get("body") or "").strip()
     pr_author = (pr_data.get("user") or {}).get("login", "unknown")
@@ -304,10 +400,11 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     # Review duration
     review_duration_seconds = pr_data.get("_duration_secs", 0)
     if not review_duration_seconds:
-        if created_at and merged_at:
+        end_time_str = merged_at or closed_at
+        if created_at and end_time_str:
             try:
                 t0 = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                t1 = datetime.fromisoformat(merged_at.replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
                 review_duration_seconds = max(int((t1 - t0).total_seconds()), 1)
             except Exception:
                 review_duration_seconds = 3600
@@ -366,24 +463,49 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     # Reviewer resolution
     reviewer = pr_data.get("_sim_reviewer") or pr_data.get("reviewer") or ""
     if not reviewer and reviews:
-        reviewer = reviews[0].get("user", {}).get("login", "")
-    elif not reviewer and pr_data.get("requested_reviewers"):
+        # Prioritize an approved review first
+        for rv in reviews:
+            if rv.get("state") == "APPROVED":
+                rev_user = rv.get("user", {}).get("login", "")
+                if rev_user and not (rev_user.endswith("[bot]") or rev_user.endswith("-bot")):
+                    reviewer = rev_user
+                    break
+        if not reviewer:
+            for rv in reviews:
+                rev_user = rv.get("user", {}).get("login", "")
+                if rev_user and not (rev_user.endswith("[bot]") or rev_user.endswith("-bot")):
+                    reviewer = rev_user
+                    break
+        if not reviewer and reviews:
+            reviewer = reviews[0].get("user", {}).get("login", "")
+    if not reviewer and pr_data.get("requested_reviewers"):
         reviewer = pr_data["requested_reviewers"][0].get("login", "")
+    if not reviewer and pr_data.get("assignees"):
+        for a in pr_data["assignees"]:
+            if a.get("login") and a.get("login") != pr_author:
+                reviewer = a.get("login")
+                break
     if not reviewer:
-        reviewer = (pr_data.get("assignee") or {}).get("login", "") or "collaborator"
+        reviewer = (pr_data.get("assignee") or {}).get("login", "")
+    if not reviewer and pr_data.get("merged_by"):
+        mb = (pr_data.get("merged_by") or {}).get("login", "")
+        if mb and mb != pr_author:
+            reviewer = mb
+    if reviewer == "collaborator":
+        reviewer = ""
 
     # ─────────────────────────────────────────────────────────────────
     # Discrepancy signals (used by all three models)
     # ─────────────────────────────────────────────────────────────────
 
     # Signal: no meaningful reviewer assigned
-    no_reviewer = (reviewer in ("", "collaborator") and not reviews)
+    no_reviewer = (not reviewer and not reviews)
 
     # Signal: rapid merge — merged < 10 minutes after opening
     rapid_merge = (
         review_duration_seconds > 0
         and review_duration_seconds < 600
-        and state == "closed"
+        and is_merged
     )
 
     # Signal: stale PR — open for > 30 days (complacency / context loss)
@@ -391,7 +513,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
 
     # Signal: WIP/DO-NOT-MERGE in title but merged
     wip_pattern = re.compile(r"\b(wip|do\s*not\s*merge|draft|dnm|blocked|hold)\b", re.I)
-    wip_not_draft = bool(wip_pattern.search(pr_title) and state == "closed")
+    wip_not_draft = bool(wip_pattern.search(pr_title) and is_merged)
 
     # Signal: mass file touch — shotgun commit touching > 15 files
     mass_file_touch = changed_files > 15
@@ -400,8 +522,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     empty_description = len(pr_body) < 30 and total_lines > 100
 
     # Signal: self-review — author and reviewer share the same login
-    self_review = bool(reviewer and reviewer.lower() == pr_author.lower()
-                       and reviewer != "collaborator")
+    self_review = bool(reviewer and pr_author and reviewer.lower() == pr_author.lower())
 
     # AI authorship signal (from commit message or body)
     ai_pattern = re.compile(
@@ -595,11 +716,14 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         substantive_ratio = max(len(reviews) - rubber_stamp_count, 0) / total_reviews if reviews else 0.0
 
         # Depth from review events
-        if not reviews:
+        if is_closed_unmerged:
+            # PR closed without merging: lack of deep review is expected since code was abandoned/rejected
+            depth_from_reviews = 0.50
+        elif not reviews:
             depth_from_reviews = 0.05
         elif all_bots and reviews:
             depth_from_reviews = 0.05
-        elif has_changes_requested and state == "closed":
+        elif has_changes_requested and is_merged:
             depth_from_reviews = max(substantive_ratio * 0.50, 0.05)
         elif has_dismissed and has_approvals:
             depth_from_reviews = max(substantive_ratio * 0.60, 0.10)
@@ -621,7 +745,7 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
             + 0.20 * comment_depth_score,
             4
         )
-        if has_changes_requested and state == "closed":
+        if has_changes_requested and is_merged:
             depth_score = round(max(depth_score - 0.20, 0.02), 4)
         depth_score = round(max(min(depth_score, 1.0), 0.0), 4)
 
@@ -645,14 +769,15 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
             attention_state -= 0.15
         if is_weekend_merge and sensitive_count > 0:
             attention_state -= 0.10
-        if not reviews:
-            attention_state -= 0.30
-        if rapid_merge:
-            attention_state -= 0.25
-        if self_review:
-            attention_state -= 0.30
-        if stale_pr:
-            attention_state -= 0.08
+        if not is_closed_unmerged:
+            if not reviews:
+                attention_state -= 0.30
+            if rapid_merge:
+                attention_state -= 0.25
+            if self_review:
+                attention_state -= 0.30
+            if stale_pr:
+                attention_state -= 0.08
 
         attention_state = round(max(0.04, min(1.0, attention_state)), 4)
 
@@ -704,8 +829,13 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
     if not sim_profile:
         if rubber_stamp_count > 0:
             _findings.append(f"{rubber_stamp_count} rubber-stamp approval(s)")
-        if has_changes_requested and state == "closed":
-            _findings.append("merged with pending change requests")
+        if has_changes_requested:
+            if is_merged:
+                _findings.append("merged with pending change requests")
+            else:
+                _findings.append("changes requested, unmerged")
+        elif is_closed_unmerged:
+            _findings.append("closed without merging")
     _finding_str = "; ".join(_findings) if _findings else "standard change"
 
     if state == "open":
@@ -725,6 +855,11 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
                 f"Active PR #{pr_number}: {total_lines}-line diff open for {dur_str} ({_finding_str}). "
                 f"Residual risk {residual_risk:.2f} is low — review depth is within safety bounds."
             )
+    elif is_closed_unmerged:
+        explanation = (
+            f"Closed PR #{pr_number}: {total_lines}-line diff ({_finding_str}) "
+            f"closed without merging on {dur_str}. No production deployment risk."
+        )
     else:
         if re_queued:
             explanation = (
@@ -809,7 +944,9 @@ def _score_pr_heuristic(pr_data: dict, reviews: list[dict] | None = None, commen
         "author": pr_author,
         "reviewer": reviewer,
         "created_at": created_at,
-        "merged_at": merged_at if state == "closed" else None,
+        "merged_at": merged_at,
+        "closed_at": closed_at,
+        "is_merged": is_merged,
         "state": state,
         "scored": True,
         "change_risk": change_risk,
@@ -889,6 +1026,7 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         scored_only = [p for p in cached_prs if p.get("scored") and p.get("residual_risk") is not None]
         total_scored = len(scored_only)
         high_count = sum(1 for p in scored_only if p.get("risk_tier") == "high")
+        medium_count = sum(1 for p in scored_only if p.get("risk_tier") == "medium")
         requeued_count = sum(1 for p in scored_only if p.get("re_queued"))
         avg_res = (sum(p["residual_risk"] for p in scored_only) / total_scored) if total_scored > 0 else 0.0
         return {
@@ -897,7 +1035,9 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
             "repo_meta": FETCHED_REPOS[full_repo_name],
             "stats": {
                 "total_scored": total_scored,
+                "total_prs": len(cached_prs),
                 "high_risk_flagged": high_count,
+                "medium_risk_count": medium_count,
                 "requeued_today": requeued_count,
                 "avg_residual_risk": round(avg_res, 2),
             }
@@ -962,82 +1102,50 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         reverse=True
     )
 
-    # 5. Determine initial scoring window: max(25, count of PRs in the last 30 days)
-    count_30_days = sum(1 for c in candidates if _is_within_30_days(c.get("created_at") or c.get("updated_at")))
-    target_scored_count = max(25, count_30_days)
-
-    # 6. Process candidate PRs in parallel for ultra-fast response
+    # 5. Process all candidate PRs in parallel for ultra-fast response and 100% synchronized model scores
     def _process_candidate(item):
         idx, pr = item
         num = pr.get("number")
         if not num:
             return None
 
-        if idx < target_scored_count:
-            full_pr = dict(pr)
-            if not rate_limited and "additions" not in pr:
-                single_detail = _github_get(f"{base}/pulls/{num}")
-                if isinstance(single_detail, dict) and not single_detail.get("_rate_limit_exceeded"):
-                    full_pr.update(single_detail)
+        full_pr = dict(pr)
+        if not rate_limited and "additions" not in pr:
+            single_detail = _github_get(f"{base}/pulls/{num}")
+            if isinstance(single_detail, dict) and not single_detail.get("_rate_limit_exceeded"):
+                full_pr.update(single_detail)
 
-            full_pr["_repo"] = full_repo_name
+        full_pr["_repo"] = full_repo_name
 
-            reviews = []
-            comments = []
-            if not rate_limited:
-                r_resp = _github_get(f"{base}/pulls/{num}/reviews") or []
-                if isinstance(r_resp, list):
-                    reviews = r_resp
-                c_resp = _github_get(f"{base}/pulls/{num}/comments") or []
-                if isinstance(c_resp, list):
-                    comments = c_resp
+        reviews = []
+        comments = []
+        if not rate_limited:
+            r_resp = _github_get(f"{base}/pulls/{num}/reviews") or []
+            if isinstance(r_resp, list):
+                reviews = r_resp
+            c_resp = _github_get(f"{base}/pulls/{num}/comments") or []
+            if isinstance(c_resp, list):
+                comments = c_resp
 
-            scored_item = _score_pr_heuristic(full_pr, reviews, comments)
-            scored_item["scored"] = True
-            return scored_item
-        else:
-            total_lines = pr.get("additions", 0) + pr.get("deletions", 0) or 150
-            unscored_item = {
-                "pr_key": f"{full_repo_name}#{num}",
-                "pr_url": pr.get("html_url", f"https://github.com/{owner}/{repo}/pull/{num}"),
-                "repo": full_repo_name,
-                "pr_number": num,
-                "title": pr.get("title", f"Pull request #{num}"),
-                "author": (pr.get("user") or {}).get("login", "collaborator"),
-                "reviewer": "collaborator",
-                "created_at": pr.get("created_at") or "2026-06-01T12:00:00Z",
-                "merged_at": pr.get("merged_at") if pr.get("state") == "closed" else None,
-                "state": pr.get("state", "closed"),
-                "change_risk": None,
-                "review_confidence": None,
-                "residual_risk": None,
-                "risk_tier": "unscored",
-                "confidence_pct": None,
-                "residual_pct": None,
-                "diff_lines": total_lines,
-                "changed_files": pr.get("changed_files", 2),
-                "sensitive_files": [f["filename"] for f in (pr.get("_files") or []) if "filename" in f][:3],
-                "comments": [],
-                "scored": False,
-                "status": "pending_analysis",
-                "explanation": "Older pull request cataloged for on-demand analysis.",
-            }
-            _cache_scored_pr(unscored_item)
-            return unscored_item
+        scored_item = _score_pr_heuristic(full_pr, reviews, comments)
+        scored_item["scored"] = True
+        _cache_scored_pr(scored_item)
+        return scored_item
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         all_prs = [p for p in pool.map(_process_candidate, enumerate(candidates[:limit])) if p is not None]
 
+    # Order all PRs chronologically descending so newest PRs appear at the top ("above")
+    def _pr_sort_key(p):
+        return (p.get("created_at") or "", p.get("pr_number") or 0)
 
-    # Sort so scored PRs are ordered descending by residual risk, followed by unscored older PRs
+    all_prs.sort(key=_pr_sort_key, reverse=True)
     scored_prs = [p for p in all_prs if p.get("scored") and p.get("residual_risk") is not None]
-    unscored_prs = [p for p in all_prs if not p.get("scored") or p.get("residual_risk") is None]
-    scored_prs.sort(key=lambda x: x.get("residual_risk", 0.0), reverse=True)
-    all_prs = scored_prs + unscored_prs
 
     # Compute repository stats
     total_scored = len(scored_prs)
     high_count = sum(1 for p in scored_prs if p.get("risk_tier") == "high")
+    medium_count = sum(1 for p in scored_prs if p.get("risk_tier") == "medium")
     requeued_count = sum(1 for p in scored_prs if p.get("re_queued"))
     avg_res = (sum(p["residual_risk"] for p in scored_prs) / total_scored) if total_scored > 0 else 0.0
 
@@ -1045,6 +1153,7 @@ def _fetch_and_score_repo(owner: str, repo: str, limit: int = 50, force_refresh:
         "total_scored": total_scored,
         "total_prs": len(all_prs),
         "high_risk_flagged": high_count,
+        "medium_risk_count": medium_count,
         "requeued_today": requeued_count,
         "avg_residual_risk": round(avg_res, 2),
     }
@@ -1137,11 +1246,54 @@ def _discover_popular_repos(limit: int = 6) -> list[dict]:
 
 
 
+DEFAULT_INITIAL_REPO = "ankit-cybertron/Vouch"
+
+
+def _ensure_vouch_repo_exists() -> dict:
+    """Ensure ankit-cybertron/Vouch is present in catalog and persistent store."""
+    for key in list(FETCHED_REPOS.keys()):
+        if key.lower() == DEFAULT_INITIAL_REPO.lower():
+            return FETCHED_REPOS[key]
+
+    try:
+        stored_repos = store.get_repos()
+        for key, meta in stored_repos.items():
+            if key.lower() == DEFAULT_INITIAL_REPO.lower():
+                FETCHED_REPOS[DEFAULT_INITIAL_REPO] = dict(meta)
+                return FETCHED_REPOS[DEFAULT_INITIAL_REPO]
+    except Exception:
+        pass
+
+    vouch_meta = {
+        "full_name": DEFAULT_INITIAL_REPO,
+        "owner": "ankit-cybertron",
+        "repo": "Vouch",
+        "description": "Multi-model pull request review intelligence & residual risk calibration engine.",
+        "stars": "1",
+        "forks": "0",
+        "language": "Python",
+        "language_color": "#3572A5",
+        "is_public": True,
+        "active_prs_count": 0,
+        "closed_prs_count": 3,
+        "avg_residual_risk": 0.58,
+        "last_fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    FETCHED_REPOS[DEFAULT_INITIAL_REPO] = vouch_meta
+    try:
+        store.save_repo(vouch_meta)
+    except Exception as ex:
+        logger.warning(f"Could not persist default Vouch repo: {ex}")
+    return vouch_meta
+
+
 def _init_default_repos() -> None:
     """Populate default repositories catalog and PR caches with persisted repositories."""
     stored_repos = store.get_repos()
     for name, repo_meta in stored_repos.items():
         FETCHED_REPOS[name] = dict(repo_meta)
+
+    _ensure_vouch_repo_exists()
 
     stored_prs = store.get_prs()
     for pr in stored_prs:
@@ -1164,30 +1316,49 @@ _init_default_repos()
 
 @app.context_processor
 def inject_global_vars():
-    token = session.get("github_token", "")
+    installation_id = session.get("installation_id")
+    has_token = bool(session.get("auth_sid")) or bool(session.get("github_token"))
+    is_authenticated = bool(installation_id) or has_token
     auth_info = {
-        "is_authenticated": bool(token),
-        "auth_type": session.get("auth_type", "demo" if not token else "token"),
+        "is_authenticated": is_authenticated,
+        "auth_type": session.get("auth_type", "demo" if not is_authenticated else ("github_app" if installation_id else "token")),
         "user_login": session.get("user_login", ""),
         "user_name": session.get("user_name", session.get("user_login", "")),
         "user_avatar": session.get("user_avatar", ""),
         "rate_limit": session.get("rate_limit", {}),
     }
+    from explain.groq_client import is_groq_configured
+    groq_configured = is_groq_configured() or bool(session.get("groq_api_key"))
+
+    app_install_url = os.environ.get("GITHUB_APP_INSTALL_URL", "").strip()
+    client_id = os.environ.get("GITHUB_CLIENT_ID", "").strip()
+
     return {
         "repos_count": len(FETCHED_REPOS),
         "all_repos": list(FETCHED_REPOS.values()),
         "auth": auth_info,
         "app_version": get_version_info(),
+        "groq_configured": groq_configured,
+        "app_install_url": app_install_url,
+        "app_configured": github_app_auth.is_configured(),
+        "has_oauth": bool(client_id),
     }
 
 
 @app.route("/")
 def landing_page():
     """Main Landing Page introducing Vouch, with GitHub App install & Demo mode entry points."""
+<<<<<<< HEAD
     # If user is already authenticated (GitHub App or OAuth), route directly to repos
     already_authed = (
         session.get("installation_id") and github_app_auth.is_configured()
     ) or (session.get("github_token") and not request.args.get("reauth"))
+=======
+    # If user is already authenticated (GitHub App or OAuth/PAT), route directly to repos
+    already_authed = (
+        session.get("installation_id") and github_app_auth.is_configured()
+    ) or ((session.get("auth_sid") or session.get("github_token")) and not request.args.get("reauth"))
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     if already_authed and not request.args.get("reauth"):
         return redirect(url_for("repos_page"))
 
@@ -1215,6 +1386,10 @@ def landing_page():
     # Legacy OAuth availability (fallback when GitHub App is not configured)
     has_oauth = bool(client_id) or bool(_resolve_github_token())
 
+    # Pre-compute the exact callback URLs for display in setup instructions
+    computed_oauth_callback_uri = _oauth_callback_uri()
+    computed_app_callback_uri = _app_setup_callback_uri()
+
     return render_template(
         "landing.html",
         sample_repos=sample_repos,
@@ -1223,6 +1398,11 @@ def landing_page():
         error=error,
         app_configured=app_configured,
         app_install_url=app_install_url,
+<<<<<<< HEAD
+=======
+        computed_oauth_callback_uri=computed_oauth_callback_uri,
+        computed_app_callback_uri=computed_app_callback_uri,
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     )
 
 
@@ -1234,6 +1414,8 @@ def repos_page():
         parsed = _parse_repo_input(repo_arg)
         if parsed:
             return repo_view(parsed[0], parsed[1])
+
+    _ensure_vouch_repo_exists()
 
     try:
         for name, meta in store.get_repos().items():
@@ -1247,15 +1429,26 @@ def repos_page():
     if search:
         repos_list = [
             r for r in repos_list
-            if search in r["full_name"].lower()
+            if search in r.get("full_name", "").lower()
             or search in r.get("description", "").lower()
             or search in r.get("language", "").lower()
         ]
+
+    for r in repos_list:
+        r.setdefault("avg_residual_risk", 0.0)
+        r.setdefault("active_prs_count", 0)
+        r.setdefault("closed_prs_count", 0)
+
+    # Ensure ankit-cybertron/Vouch is always prioritized and sorted first
+    vouch_key = DEFAULT_INITIAL_REPO.lower()
+    repos_list.sort(key=lambda r: 0 if r.get("full_name", "").lower() == vouch_key else 1)
+
 
     return render_template(
         "repos.html",
         repos=repos_list,
         search=search,
+        initial_repo_name=DEFAULT_INITIAL_REPO,
     )
 
 
@@ -1341,7 +1534,12 @@ def auth_github():
     if client_id and client_secret:
         state = secrets.token_urlsafe(16)
         session["oauth_state"] = state
+<<<<<<< HEAD
         redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+=======
+        # Use APP_BASE_URL when deployed (Elastic Beanstalk / reverse proxy)
+        redirect_uri = _oauth_callback_uri()
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 
         params = {
             "client_id": client_id,
@@ -1380,8 +1578,13 @@ def auth_github():
                     timeout=10,
                 )
                 rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
-
-                session["github_token"] = existing_token
+                auth_sid = session_store.create_session(
+                    token=existing_token,
+                    user_login=user_data.get("login", "github_user"),
+                    auth_type="oauth",
+                )
+                session["auth_sid"] = auth_sid
+                session.pop("github_token", None)
                 session["user_login"] = user_data.get("login", "github_user")
                 session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
                 session["user_avatar"] = user_data.get("avatar_url", "")
@@ -1413,7 +1616,12 @@ def auth_github_callback():
     client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
 
     try:
+<<<<<<< HEAD
         redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
+=======
+        # Use APP_BASE_URL when deployed so redirect_uri matches what GitHub expects
+        redirect_uri = _oauth_callback_uri()
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
         token_resp = requests.post(
             "https://github.com/login/oauth/access_token",
             headers={"Accept": "application/json"},
@@ -1454,7 +1662,14 @@ def auth_github_callback():
         )
         rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
 
-        session["github_token"] = access_token
+        # Store OAuth token securely in server-side session store
+        auth_sid = session_store.create_session(
+            token=access_token,
+            user_login=user_data.get("login", "github_user"),
+            auth_type="oauth",
+        )
+        session["auth_sid"] = auth_sid
+        session.pop("github_token", None)
         session["user_login"] = user_data.get("login", "github_user")
         session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
         session["user_avatar"] = user_data.get("avatar_url", "")
@@ -1472,6 +1687,9 @@ def auth_github_callback():
 @app.route("/auth/logout")
 def auth_logout():
     """Clear user session and return to landing page."""
+    auth_sid = session.pop("auth_sid", None)
+    if auth_sid:
+        session_store.delete_session(auth_sid)
     session.pop("github_token", None)
     session.pop("installation_id", None)
     session.pop("setup_action", None)
@@ -1483,9 +1701,88 @@ def auth_logout():
     return redirect(url_for("landing_page"))
 
 
+<<<<<<< HEAD
+=======
+# ── Option 4: In-App UI Personal Access Token API (Fallback) ─────
+@app.route("/api/auth/token", methods=["POST"])
+def api_save_token():
+    """Validate and store Personal Access Token (classic ghp_ or fine-grained github_pat_)."""
+    payload = request.get_json(silent=True) or {}
+    raw_token = payload.get("token", "").strip()
+    if not raw_token:
+        return jsonify({"success": False, "error": "Token cannot be empty"}), 400
+
+    try:
+        # Validate token against GitHub API
+        user_resp = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {raw_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=8,
+        )
+        if user_resp.status_code != 200:
+            return jsonify({
+                "success": False,
+                "error": "Invalid GitHub token. GitHub rejected the token (HTTP 401). Please verify permissions.",
+            }), 400
+
+        user_data = user_resp.json()
+        rate_resp = requests.get(
+            "https://api.github.com/rate_limit",
+            headers={
+                "Authorization": f"Bearer {raw_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=8,
+        )
+        rate_data = rate_resp.json().get("rate", {}) if rate_resp.status_code == 200 else {}
+
+        # Store PAT securely in server-side session store
+        auth_sid = session_store.create_session(
+            token=raw_token,
+            user_login=user_data.get("login", "github_user"),
+            auth_type="token",
+        )
+
+        # Reset any prior GitHub App installation from session so PAT is used
+        session.pop("installation_id", None)
+        session.pop("setup_action", None)
+        session.pop("github_token", None)  # Ensure raw token is never stored in client cookie
+        session["auth_sid"] = auth_sid
+        session["user_login"] = user_data.get("login", "github_user")
+        session["user_name"] = user_data.get("name") or user_data.get("login", "GitHub User")
+        session["user_avatar"] = user_data.get("avatar_url", "")
+        session["auth_type"] = "token"
+        session["rate_limit"] = {
+            "limit": rate_data.get("limit", 5000),
+            "remaining": rate_data.get("remaining", 5000),
+        }
+
+        return jsonify({
+            "success": True,
+            "message": f"Connected as @{session['user_login']}",
+            "user": {
+                "login": session["user_login"],
+                "name": session["user_name"],
+                "avatar_url": session["user_avatar"],
+            },
+            "rate_limit": session["rate_limit"],
+        })
+    except requests.exceptions.RequestException:
+        return jsonify({"success": False, "error": "Connection error: Unable to reach GitHub API."}), 502
+    except Exception:
+        return jsonify({"success": False, "error": "Unexpected error validating token."}), 500
+
+
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 @app.route("/api/auth/clear-token", methods=["POST"])
 def api_clear_token():
     """Reset session to default demo mode."""
+    auth_sid = session.pop("auth_sid", None)
+    if auth_sid:
+        session_store.delete_session(auth_sid)
     session.pop("github_token", None)
     session.pop("installation_id", None)
     session.pop("setup_action", None)
@@ -1501,9 +1798,15 @@ def api_clear_token():
 def api_auth_status():
     """Return current session auth state."""
     installation_id = session.get("installation_id")
+<<<<<<< HEAD
     token = session.get("github_token")
     authenticated = bool(installation_id) or bool(token)
     auth_type = session.get("auth_type", "demo" if not authenticated else "token")
+=======
+    has_token = bool(session.get("auth_sid")) or bool(session.get("github_token"))
+    authenticated = bool(installation_id) or has_token
+    auth_type = session.get("auth_type", "demo" if not authenticated else ("github_app" if installation_id else "token"))
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     return jsonify({
         "authenticated": authenticated,
         "auth_type": auth_type,
@@ -1529,6 +1832,16 @@ def repo_view(owner: str, repo_name: str):
         try:
             prs_from_store = store.get_prs(repo=full_name)
             if prs_from_store:
+                for idx, p in enumerate(prs_from_store):
+                    if not p.get("scored") or p.get("residual_risk") is None:
+                        scored_p = _score_pr_heuristic(p, p.get("_reviews") or p.get("reviews") or [], p.get("_comments") or p.get("comments") or [])
+                        scored_p["scored"] = True
+                        _cache_scored_pr(scored_p)
+                        prs_from_store[idx] = scored_p
+                        try:
+                            store.save_pr(scored_p)
+                        except Exception:
+                            pass
                 REPO_PRS_CACHE[full_name.lower()] = prs_from_store
                 stored_repos = store.get_repos()
                 if full_name in stored_repos:
@@ -1539,19 +1852,37 @@ def repo_view(owner: str, repo_name: str):
     # Use cached or fetch & score
     if full_name.lower() in REPO_PRS_CACHE and full_name in FETCHED_REPOS:
         prs = list(REPO_PRS_CACHE[full_name.lower()])
+        cache_updated = False
+        for idx, p in enumerate(prs):
+            if not p.get("scored") or p.get("residual_risk") is None:
+                scored_p = _score_pr_heuristic(p, p.get("_reviews") or p.get("reviews") or [], p.get("_comments") or p.get("comments") or [])
+                scored_p["scored"] = True
+                _cache_scored_pr(scored_p)
+                prs[idx] = scored_p
+                cache_updated = True
+                try:
+                    store.save_pr(scored_p)
+                except Exception:
+                    pass
+        if cache_updated:
+            REPO_PRS_CACHE[full_name.lower()] = prs
+
         current_repo_meta = FETCHED_REPOS[full_name]
         scored_only = [p for p in prs if p.get("scored") and p.get("residual_risk") is not None]
         total = len(scored_only)
         high_count = sum(1 for p in scored_only if p.get("risk_tier") == "high")
+        medium_count = sum(1 for p in scored_only if p.get("risk_tier") == "medium")
         requeued_count = sum(1 for p in scored_only if p.get("re_queued"))
         avg_res = (sum(p["residual_risk"] for p in scored_only) / total) if total > 0 else 0.0
         stats = {
             "total_scored": total,
             "total_prs": len(prs),
             "high_risk_flagged": high_count,
+            "medium_risk_count": medium_count,
             "requeued_today": requeued_count,
             "avg_residual_risk": round(avg_res, 2),
         }
+        FETCHED_REPOS[full_name]["avg_residual_risk"] = stats["avg_residual_risk"]
     else:
         result = _fetch_and_score_repo(owner, repo_name, limit=50)
         prs = result.get("prs", [])
@@ -1584,19 +1915,40 @@ def repo_view(owner: str, repo_name: str):
                         except Exception:
                             pass
 
-    # Pre-filter counts
+    # Pre-filter repository KPI counts
+    total_pr_count = len(prs)
+    scored_prs_all = [p for p in prs if p.get("scored") and p.get("residual_risk") is not None]
+    if not scored_prs_all:
+        scored_prs_all = [p for p in prs if p.get("residual_risk") is not None]
+    high_risk_count = sum(1 for p in scored_prs_all if p.get("risk_tier") == "high")
+    medium_risk_count = sum(1 for p in scored_prs_all if p.get("risk_tier") == "medium")
+    avg_residual = round(sum(p["residual_risk"] for p in scored_prs_all) / len(scored_prs_all), 2) if scored_prs_all else 0.0
+
+    # Ensure stats is 100% synchronized with the pre-filter repository totals
+    stats = {
+        "total_scored": len(scored_prs_all),
+        "total_prs": total_pr_count,
+        "high_risk_flagged": high_risk_count,
+        "medium_risk_count": medium_risk_count,
+        "avg_residual_risk": avg_residual,
+    }
+
+    # Pre-filter counts for tri-state tabs
     open_count = len([p for p in prs if p.get("state") == "open"])
-    closed_count = len([p for p in prs if p.get("state") == "closed"])
+    merged_count = len([p for p in prs if p.get("state") == "closed" and (p.get("merged_at") or p.get("is_merged"))])
+    closed_count = len([p for p in prs if p.get("state") == "closed" and not (p.get("merged_at") or p.get("is_merged"))])
 
     # Risk level filter
     if risk_filter != "all":
         prs = [p for p in prs if p.get("risk_tier") == risk_filter]
 
-    # State filter (open vs closed)
+    # State filter (open vs merged vs closed)
     if state_filter == "open":
         prs = [p for p in prs if p.get("state") == "open"]
+    elif state_filter == "merged":
+        prs = [p for p in prs if p.get("state") == "closed" and (p.get("merged_at") or p.get("is_merged"))]
     elif state_filter == "closed":
-        prs = [p for p in prs if p.get("state") == "closed"]
+        prs = [p for p in prs if p.get("state") == "closed" and not (p.get("merged_at") or p.get("is_merged"))]
 
     # Keyword or PR number filter
     if search:
@@ -1614,12 +1966,17 @@ def repo_view(owner: str, repo_name: str):
         "board.html",
         prs=prs,
         stats=stats,
+        total_pr_count=total_pr_count,
+        high_risk_count=high_risk_count,
+        medium_risk_count=medium_risk_count,
+        avg_residual=avg_residual,
         risk_filter=risk_filter,
         state_filter=state_filter,
         search=search,
         current_repo=current_repo_meta,
         active_repo_name=full_name,
         open_count=open_count,
+        merged_count=merged_count,
         closed_count=closed_count,
     )
 
@@ -1627,17 +1984,35 @@ def repo_view(owner: str, repo_name: str):
 @app.route("/pulls")
 @app.route("/board")
 def board():
-    """General PR board — defaults to first repository or query."""
+    """General PR board — clean hero search page when visited directly, or repository PR board."""
     repo_arg = request.args.get("repo", "").strip()
     if repo_arg:
         parsed = _parse_repo_input(repo_arg)
         if parsed:
             return repo_view(parsed[0], parsed[1])
 
-    if FETCHED_REPOS:
-        first_repo = next(iter(FETCHED_REPOS.values()))
-        return repo_view(first_repo["owner"], first_repo["repo"])
-    return redirect("/repos")
+    recent_repos = []
+    seen = set()
+    for repo_dict in list(FETCHED_REPOS.values()):
+        fn = repo_dict.get("full_name") or f"{repo_dict.get('owner')}/{repo_dict.get('repo')}"
+        if fn and fn not in seen:
+            seen.add(fn)
+            recent_repos.append(repo_dict)
+
+    total_prs = sum(len(prs) for prs in REPO_PRS_CACHE.values())
+    total_repos = len(FETCHED_REPOS)
+
+    return render_template(
+        "board.html",
+        mode="search",
+        recent_repos=recent_repos[:12],
+        total_prs=total_prs,
+        total_repos=total_repos,
+        current_repo=None,
+        active_repo_name=None,
+        prs=[],
+        stats={"total_scored": 0, "total_prs": total_prs, "high_risk_flagged": 0, "medium_risk_count": 0, "avg_residual_risk": 0},
+    )
 
 
 @app.route("/api/clear-repos", methods=["POST"])
@@ -1654,7 +2029,31 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
     full_repo = f"{org}/{repo_name}"
     full_repo_lower = full_repo.lower()
 
-    # 1. First, attempt live fetch directly from GitHub API (the authoritative source)
+    # 1. Check if this PR was already scored and stored in memory or persistence
+    existing_scored = None
+    for key in (
+        f"{full_repo_lower}/{pr_number}",
+        f"{full_repo_lower}#{pr_number}",
+        f"{full_repo}/{pr_number}",
+        f"{full_repo}#{pr_number}",
+    ):
+        if key in LIVE_PRS_CACHE and LIVE_PRS_CACHE[key].get("scored") and LIVE_PRS_CACHE[key].get("residual_risk") is not None:
+            existing_scored = dict(LIVE_PRS_CACHE[key])
+            break
+
+    if not existing_scored and full_repo_lower in REPO_PRS_CACHE:
+        for p in REPO_PRS_CACHE[full_repo_lower]:
+            if p.get("pr_number") == pr_number and p.get("scored") and p.get("residual_risk") is not None:
+                existing_scored = dict(p)
+                break
+
+    if not existing_scored:
+        for p in store.get_prs():
+            if p.get("repo", "").lower() == full_repo_lower and p.get("pr_number") == pr_number and p.get("scored") and p.get("residual_risk") is not None:
+                existing_scored = dict(p)
+                break
+
+    # 2. Attempt live fetch directly from GitHub API for complete timeline conversation
     base = f"https://api.github.com/repos/{full_repo}"
     pr_data = _github_get(f"{base}/pulls/{pr_number}")
     if isinstance(pr_data, dict) and "number" in pr_data and not pr_data.get("_rate_limit_exceeded"):
@@ -1665,7 +2064,7 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
             f_ic = ex.submit(_github_get, f"{base}/issues/{pr_number}/comments")
             f_rc = ex.submit(_github_get, f"{base}/pulls/{pr_number}/comments")
             f_rv = ex.submit(_github_get, f"{base}/pulls/{pr_number}/reviews")
-            
+
             issue_comments = f_ic.result() or []
             review_comments = f_rc.result() or []
             reviews = f_rv.result() or []
@@ -1748,9 +2147,9 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
             u = rv.get("user") or {}
             login = u.get("login", "unknown")
             rv_body = (rv.get("body") or "").strip()
-            state = (rv.get("state") or "COMMENTED").upper()
-            if rv_body or state in ("APPROVED", "CHANGES_REQUESTED"):
-                default_msg = "Approved these changes." if state == "APPROVED" else ("Requested changes." if state == "CHANGES_REQUESTED" else "Submitted a review.")
+            rv_state = (rv.get("state") or "COMMENTED").upper()
+            if rv_body or rv_state in ("APPROVED", "CHANGES_REQUESTED"):
+                default_msg = "Approved these changes." if rv_state == "APPROVED" else ("Requested changes." if rv_state == "CHANGES_REQUESTED" else "Submitted a review.")
                 conversation.append({
                     "type": "review",
                     "user": {
@@ -1759,7 +2158,7 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
                         "html_url": u.get("html_url") or f"https://github.com/{login}",
                     },
                     "body": rv_body or default_msg,
-                    "review_state": state,
+                    "review_state": rv_state,
                     "created_at": rv.get("submitted_at") or rv.get("created_at") or pr_data.get("created_at"),
                     "role_badge": "Reviewer",
                     "is_author": False,
@@ -1770,44 +2169,52 @@ def _resolve_pr_detail(org: str, repo_name: str, pr_number: int) -> tuple[dict |
         rest_sorted = sorted(conversation[1:], key=lambda x: x.get("created_at") or "")
         full_conversation = [first_desc] + rest_sorted
 
-        scored = _score_pr_heuristic(pr_data, reviews, review_comments)
+        # Compute the LATEST score using live GitHub data (prioritizing latest scoring)
+        all_comments = review_comments + issue_comments
+        scored = _score_pr_heuristic(pr_data, reviews, all_comments)
         scored["body"] = pr_body
         scored["conversation"] = full_conversation
         scored["comments_count"] = len(issue_comments) + len(review_comments)
         scored["pr_url"] = pr_data.get("html_url") or f"https://github.com/{full_repo}/pull/{pr_number}"
+        scored["scored"] = True
+
+        # Synchronize this LATEST score everywhere so board, cache, and persistence are 100% in sync
         _cache_scored_pr(scored)
+
+        if full_repo_lower in REPO_PRS_CACHE:
+            updated = False
+            for idx, p in enumerate(REPO_PRS_CACHE[full_repo_lower]):
+                if p.get("pr_number") == pr_number:
+                    REPO_PRS_CACHE[full_repo_lower][idx] = scored
+                    updated = True
+                    break
+            if not updated:
+                REPO_PRS_CACHE[full_repo_lower].insert(0, scored)
+        else:
+            REPO_PRS_CACHE[full_repo_lower] = [scored]
+
+        try:
+            store.save_pr(scored)
+        except Exception:
+            pass
+
+        if full_repo in FETCHED_REPOS:
+            prs = REPO_PRS_CACHE.get(full_repo_lower, [])
+            scored_only = [p for p in prs if p.get("scored") and p.get("residual_risk") is not None]
+            if scored_only:
+                avg_res = sum(p["residual_risk"] for p in scored_only) / len(scored_only)
+                FETCHED_REPOS[full_repo]["avg_residual_risk"] = round(avg_res, 2)
+            try:
+                store.save_repo(FETCHED_REPOS[full_repo])
+            except Exception:
+                pass
+
         return scored, 200
 
-    # 2. Check repo-scoped in-memory cache if GitHub was not reachable
-    for key in (
-        f"{full_repo_lower}/{pr_number}",
-        f"{full_repo_lower}#{pr_number}",
-        f"{full_repo}/{pr_number}",
-        f"{full_repo}#{pr_number}",
-    ):
-        if key in LIVE_PRS_CACHE:
-            cached_pr = LIVE_PRS_CACHE[key]
-            if cached_pr.get("scored") and cached_pr.get("residual_risk") is not None:
-                return cached_pr, 200
-
-    # 3. Check REPO_PRS_CACHE for this repository
-    if full_repo_lower in REPO_PRS_CACHE:
-        for p in REPO_PRS_CACHE[full_repo_lower]:
-            if p.get("pr_number") == pr_number:
-                if p.get("scored") and p.get("residual_risk") is not None:
-                    _cache_scored_pr(p)
-                    return p, 200
-                scored = _score_pr_heuristic(p)
-                scored["scored"] = True
-                _cache_scored_pr(scored)
-                return scored, 200
-
-    # 4. Check persistent storage for this repository and PR number
-    stored_prs = store.get_prs()
-    for p in stored_prs:
-        if p.get("repo", "").lower() == full_repo_lower and p.get("pr_number") == pr_number:
-            _cache_scored_pr(p)
-            return p, 200
+    # 3. If GitHub was unreachable, return existing scored from cache/storage
+    if existing_scored:
+        _cache_scored_pr(existing_scored)
+        return existing_scored, 200
 
     return None, 404
 
@@ -2070,13 +2477,14 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
     }
     for pr in all_prs:
         dur = int(pr.get("review_duration_seconds") or 3600)
-        if dur < 600 and pr.get("state") == "closed":
+        is_pr_merged = bool(pr.get("merged_at")) or bool(pr.get("is_merged"))
+        if dur < 600 and is_pr_merged:
             discrepancy_counts["rapid_merge"] += 1
         if pr.get("reviewer") and pr.get("author") and pr["reviewer"].lower() == pr["author"].lower() and pr["reviewer"] != "collaborator":
             discrepancy_counts["self_review"] += 1
-        if pr.get("reviewer") in ("", "collaborator", "unassigned"):
+        if pr.get("reviewer") in ("", "collaborator", "unassigned", None):
             discrepancy_counts["no_reviewer"] += 1
-        if any(w in pr.get("title", "").lower() for w in ("wip", "do not merge", "draft", "dnm")) and pr.get("state") == "closed":
+        if any(w in pr.get("title", "").lower() for w in ("wip", "do not merge", "draft", "dnm")) and is_pr_merged:
             discrepancy_counts["wip_merged"] += 1
         if pr.get("re_queued"):
             discrepancy_counts["high_residual_requeued"] += 1
@@ -2129,10 +2537,30 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
 @app.route("/team-health")
 @app.route("/validation")
 def team_health():
-    repo_filter = request.args.get("repo", "all")
+    repo_arg = request.args.get("repo", None)
+    if not repo_arg:
+        recent_repos = []
+        seen = set()
+        for repo_dict in list(FETCHED_REPOS.values()):
+            fn = repo_dict.get("full_name") or f"{repo_dict.get('owner')}/{repo_dict.get('repo')}"
+            if fn and fn not in seen:
+                seen.add(fn)
+                recent_repos.append(repo_dict)
+        return render_template(
+            "team_health.html",
+            mode="search",
+            recent_repos=recent_repos[:12],
+            total_repos=len(FETCHED_REPOS),
+            repos=list(FETCHED_REPOS.values()),
+            active_repo=None,
+            health=_compute_team_health(repo_filter="all"),
+        )
+
+    repo_filter = repo_arg
     health_data = _compute_team_health(repo_filter=repo_filter)
     return render_template(
         "team_health.html",
+        mode="report",
         health=health_data,
         repos=list(FETCHED_REPOS.values()),
         active_repo=repo_filter,
@@ -2164,6 +2592,58 @@ def api_repos():
     return jsonify({
         "repos": list(FETCHED_REPOS.values()),
         "total": len(FETCHED_REPOS),
+    })
+
+
+@app.route("/api/repos/search")
+def api_repos_search():
+    """Smart repository search endpoint matching query against fetched and stored repositories."""
+    q = request.args.get("q", "").strip().lower()
+    all_repos = dict(FETCHED_REPOS)
+    try:
+        for name, meta in store.get_repos().items():
+            if name not in all_repos:
+                all_repos[name] = meta
+    except Exception:
+        pass
+
+    results = []
+    for full_name, r in all_repos.items():
+        fname = (r.get("full_name") or full_name).lower()
+        desc = (r.get("description") or "").lower()
+        lang = (r.get("language") or "").lower()
+        owner = r.get("owner", "")
+        repo = r.get("repo", "")
+        if not q or (q in fname or q in desc or q in lang or q in owner.lower() or q in repo.lower()):
+            results.append({
+                "full_name": r.get("full_name") or full_name,
+                "owner": owner or (full_name.split("/")[0] if "/" in full_name else ""),
+                "repo": repo or (full_name.split("/")[1] if "/" in full_name else full_name),
+                "description": r.get("description", ""),
+                "stars": r.get("stars", "—"),
+                "language": r.get("language", "Code"),
+                "language_color": r.get("language_color", "#586069"),
+                "active_prs_count": r.get("active_prs_count", 0),
+            })
+
+    vouch_name = DEFAULT_INITIAL_REPO.lower()
+    def _rank(item):
+        fn = item["full_name"].lower()
+        if fn == q:
+            return 0
+        if q and fn.startswith(q):
+            return 1
+        if q and q in fn.split("/")[-1]:
+            return 2
+        if fn == vouch_name:
+            return 3
+        return 4
+
+    results.sort(key=lambda x: (_rank(x), x["full_name"].lower()))
+    return jsonify({
+        "query": q,
+        "results": results[:15],
+        "total": len(results),
     })
 
 
@@ -2371,6 +2851,115 @@ def api_fetch_repo():
     return jsonify(result)
 
 
+@app.route("/api/explain/groq", methods=["POST"])
+def api_explain_groq():
+    """
+    Generate an on-demand LLM risk explanation using Groq API as an immediate
+    fallback while Amazon Bedrock quota access is pending approval.
+    """
+    from explain.groq_client import generate_groq_explanation
+
+    data = request.get_json(force=True, silent=True) or {}
+    pr_key = (data.get("pr_key") or "").strip()
+    user_api_key = (data.get("groq_api_key") or session.get("groq_api_key") or "").strip()
+    model = (data.get("model") or "").strip() or None
+
+    if not pr_key:
+        return jsonify({"success": False, "error": "pr_key is required."}), 400
+
+    # Store api key in session if provided
+    if user_api_key:
+        session["groq_api_key"] = user_api_key
+
+    # Resolve PR object
+    pr_obj = None
+    if pr_key in LIVE_PRS_CACHE:
+        pr_obj = LIVE_PRS_CACHE[pr_key]
+    else:
+        for k, v in LIVE_PRS_CACHE.items():
+            if k.lower() == pr_key.lower():
+                pr_obj = v
+                break
+
+    if not pr_obj and ("#" in pr_key or "/" in pr_key):
+        parts = pr_key.replace("#", "/").split("/")
+        if len(parts) >= 3:
+            owner, repo, num_str = parts[0], parts[1], parts[2]
+            try:
+                num = int(num_str)
+                pr_obj, _ = _resolve_pr_detail(owner, repo, num)
+            except Exception:
+                pass
+
+    if not pr_obj:
+        stored = store.get_prs()
+        for p in stored:
+            curr_key = p.get("pr_key") or f"{p.get('repo')}#{p.get('pr_number')}"
+            if curr_key.lower() == pr_key.lower():
+                pr_obj = p
+                break
+
+    if not pr_obj:
+        return jsonify({"success": False, "error": f"Pull request '{pr_key}' not found."}), 404
+
+    # Extract metrics for explanation prompt
+    change_risk = float(pr_obj.get("change_risk") if pr_obj.get("change_risk") is not None else 0.5)
+    review_confidence = float(pr_obj.get("review_confidence") if pr_obj.get("review_confidence") is not None else 0.5)
+    residual_risk = float(pr_obj.get("residual_risk") if pr_obj.get("residual_risk") is not None else 0.25)
+    top_features = pr_obj.get("top_features") or []
+    depth_score = float(pr_obj.get("depth_score") if pr_obj.get("depth_score") is not None else 0.5)
+    attention_state = float(pr_obj.get("attention_state") if pr_obj.get("attention_state") is not None else 1.0)
+    review_duration_seconds = int(pr_obj.get("review_duration_seconds") or 3600)
+    diff_lines = int(pr_obj.get("diff_lines") or (pr_obj.get("additions", 0) + pr_obj.get("deletions", 0)) or 100)
+    reviewer = str(pr_obj.get("reviewer") or "None assigned")
+    consecutive_reviews = int(pr_obj.get("consecutive_reviews") or 0)
+    sensitive_files = pr_obj.get("sensitive_files") or []
+    file_context = ", ".join(sensitive_files[:2]) if sensitive_files else ""
+
+    result = generate_groq_explanation(
+        pr_key=pr_key,
+        change_risk=change_risk,
+        review_confidence=review_confidence,
+        residual_risk=residual_risk,
+        top_risk_features=top_features,
+        depth_score=depth_score,
+        attention_state=attention_state,
+        review_duration_seconds=review_duration_seconds,
+        diff_lines=diff_lines,
+        reviewer=reviewer,
+        consecutive_reviews=consecutive_reviews,
+        file_context=file_context,
+        api_key=user_api_key,
+        model=model,
+    )
+
+    if result.get("success"):
+        explanation_text = result["explanation"]
+        pr_obj["bedrock_status"] = "connected"
+        pr_obj["bedrock_explanation"] = explanation_text
+        pr_obj["groq_explanation"] = explanation_text
+        pr_obj["llm_provider"] = result.get("provider", "Groq Llama 3.3")
+        _cache_scored_pr(pr_obj)
+        try:
+            store.save_pr(pr_obj)
+        except Exception:
+            pass
+
+        return jsonify({
+            "success": True,
+            "explanation": explanation_text,
+            "provider": result.get("provider", "Groq"),
+            "model": result.get("model", "qwen/qwen3.8-27b"),
+        })
+    else:
+        err_str = result.get("error", "Failed to generate explanation from Groq.")
+        return jsonify({
+            "success": False,
+            "error": err_str,
+            "requires_key": "not configured" in err_str.lower() or "invalid" in err_str.lower(),
+        }), 400
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Template filters
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2427,5 +3016,536 @@ def fmt_markdown_filter(text):
     return Markup(f'<div class="gh-md-content"><p>{escaped}</p></div>')
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Reviewer Profile & Fatigue Governance
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fetch_gh_user_profile(username: str, gh_token: str | None = None) -> tuple[dict, bool, bool]:
+    """Fetch GitHub user profile. Returns (profile_dict, not_found, rate_limited)."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = (gh_token or "").strip() or _resolve_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"https://api.github.com/users/{username}"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            return resp.json(), False, False
+        elif resp.status_code == 404:
+            return {}, True, False
+        elif resp.status_code in (403, 429):
+            return {}, False, True
+        return {}, False, False
+    except Exception:
+        return {}, False, False
+
+
+def _fetch_gh_user_prs(username: str, gh_token: str | None = None) -> tuple[list, bool]:
+    """Fetch GitHub PRs reviewed by user. Returns (prs_list, rate_limited)."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = (gh_token or "").strip() or _resolve_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"https://api.github.com/search/issues?q=reviewed-by:{username}+type:pr&per_page=100"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            items = resp.json().get("items", [])
+            return items, False
+        elif resp.status_code in (403, 429):
+            return [], True
+        return [], False
+    except Exception:
+        return [], False
+
+
+def _fetch_gh_user_events(username: str, gh_token: str | None = None) -> tuple[list, bool]:
+    """Fetch GitHub user public events. Returns (events_list, rate_limited)."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = (gh_token or "").strip() or _resolve_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"https://api.github.com/users/{username}/events?per_page=100"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return (data if isinstance(data, list) else []), False
+        elif resp.status_code in (403, 429):
+            return [], True
+        return [], False
+    except Exception:
+        return [], False
+
+
+def _build_reviewer_profile(username: str, gh_token: str | None = None) -> dict:
+    """
+    Build aggregated reviewer profile combining live GitHub identity and Vouch triage data.
+    Runs concurrently across GitHub endpoints with graceful rate-limit handling.
+    """
+    clean_username = (username or "").strip()
+    if not clean_username:
+        raise ValueError("GitHub username must not be empty.")
+
+    # 1. Parallel GitHub API calls
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        f_profile = executor.submit(_fetch_gh_user_profile, clean_username, gh_token)
+        f_prs = executor.submit(_fetch_gh_user_prs, clean_username, gh_token)
+        f_events = executor.submit(_fetch_gh_user_events, clean_username, gh_token)
+
+        gh_profile, not_found, rl_profile = f_profile.result()
+        gh_prs, rl_prs = f_prs.result()
+        gh_events, rl_events = f_events.result()
+
+    if not_found:
+        raise ValueError(f"GitHub user '{clean_username}' not found")
+
+    github_rate_limited = rl_profile or rl_prs or rl_events
+    if not gh_profile and not github_rate_limited:
+        # Fallback profile identity for graceful display
+        gh_profile = {
+            "login": clean_username,
+            "name": clean_username,
+            "avatar_url": f"https://github.com/{clean_username}.png",
+        }
+    elif not gh_profile:
+        gh_profile = {
+            "login": clean_username,
+            "avatar_url": f"https://github.com/{clean_username}.png",
+        }
+
+    # 2. Vouch store aggregation & dynamic scoring for newly searched reviewer
+    vouch_prs = store.get_prs_by_reviewer(clean_username)
+
+    existing_keys = {
+        str(p.get("pr_key") or f"{p.get('repo')}#{p.get('number') or p.get('pr_number')}").lower()
+        for p in vouch_prs
+    }
+    newly_scored_prs = []
+    if gh_prs and isinstance(gh_prs, list):
+        for item in gh_prs[:30]:
+            repo_url = item.get("repository_url", "")
+            if "/repos/" not in repo_url:
+                continue
+            repo_name = repo_url.split("/repos/")[-1].strip()
+            pr_num = item.get("number")
+            if not repo_name or not pr_num:
+                continue
+            key = f"{repo_name}#{pr_num}".lower()
+            if key in existing_keys:
+                continue
+
+            pr_candidate = {
+                "pr_key": f"{repo_name}#{pr_num}",
+                "repo": repo_name,
+                "number": int(pr_num),
+                "pr_number": int(pr_num),
+                "title": item.get("title") or "",
+                "body": item.get("body") or "",
+                "state": item.get("state", "open"),
+                "created_at": item.get("created_at") or "",
+                "updated_at": item.get("updated_at") or "",
+                "closed_at": item.get("closed_at"),
+                "html_url": item.get("html_url") or f"https://github.com/{repo_name}/pull/{pr_num}",
+                "reviewer": clean_username,
+                "reviewers": [clean_username],
+                "author": (item.get("user") or {}).get("login", "unknown"),
+            }
+            try:
+                scored = _score_pr_heuristic(pr_candidate)
+                scored["reviewer"] = clean_username
+                if "reviewers" not in scored or not scored["reviewers"]:
+                    scored["reviewers"] = [clean_username]
+                elif clean_username not in scored["reviewers"]:
+                    scored["reviewers"].append(clean_username)
+                newly_scored_prs.append(scored)
+                existing_keys.add(key)
+            except Exception as e:
+                logger.debug("Heuristic scoring skipped for %s: %s", key, e)
+
+        if newly_scored_prs:
+            try:
+                store.save_prs(newly_scored_prs)
+                known_repos = store.get_repos()
+                for sp in newly_scored_prs:
+                    r_full = sp.get("repo")
+                    if r_full and r_full not in known_repos:
+                        owner_p, _, repo_p = r_full.partition("/")
+                        store.save_repo({
+                            "full_name": r_full,
+                            "owner": owner_p,
+                            "repo": repo_p,
+                            "description": f"Repository {r_full} on GitHub",
+                            "stars": "—",
+                            "forks": "—",
+                            "language": "Code",
+                            "language_color": "#586069",
+                            "is_public": True,
+                            "active_prs_count": 0,
+                            "closed_prs_count": 0,
+                            "avg_residual_risk": 0.0,
+                        })
+
+            except Exception as e:
+                logger.warning("Failed saving discovered PRs for %s: %s", clean_username, e)
+
+            vouch_prs = store.get_prs_by_reviewer(clean_username)
+
+    total_reviews_in_vouch = len(vouch_prs)
+
+
+    def _extract_depth(p: dict) -> float:
+        d = p.get("review_depth")
+        if d is None:
+            d = p.get("depth_score")
+        if d is None:
+            d = p.get("review_confidence")
+        try:
+            return float(d or 0.0)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def _extract_ts(p: dict) -> float:
+        for f in ("scored_at", "reviewed_at", "updated_at", "created_at"):
+            val = p.get(f)
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str) and val.strip():
+                try:
+                    return datetime.fromisoformat(val.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    pass
+        return 0.0
+
+    depth_scores = [_extract_depth(p) for p in vouch_prs]
+    avg_depth_score = (sum(depth_scores) / len(depth_scores)) if depth_scores else 0.0
+
+    rubber_stamps = sum(1 for d in depth_scores if d < 0.15)
+    rubber_stamp_rate = (rubber_stamps / total_reviews_in_vouch) if total_reviews_in_vouch > 0 else 0.0
+
+    high_risk_rubber_stamped = sum(
+        1 for p in vouch_prs
+        if float(p.get("change_risk", 0.0) or 0.0) >= 0.65 and _extract_depth(p) < 0.15
+    )
+
+    from collections import Counter, defaultdict
+    domain_counts = Counter()
+    for p in vouch_prs:
+        flags = p.get("path_flags") or []
+        if isinstance(flags, list):
+            for f in flags:
+                if f:
+                    domain_counts[str(f)] += 1
+        elif isinstance(flags, str) and flags:
+            domain_counts[flags] += 1
+    top_domains = domain_counts.most_common(3)
+
+    # Calibrated reviewer grade calculation
+    if (avg_depth_score >= 0.22 and rubber_stamp_rate <= 0.20) or (avg_depth_score >= 0.15 and rubber_stamp_rate <= 0.12 and high_risk_rubber_stamped == 0):
+        grade = "A"
+    elif (avg_depth_score >= 0.14 and rubber_stamp_rate <= 0.35) or (avg_depth_score >= 0.25 and rubber_stamp_rate <= 0.40):
+        grade = "B"
+    elif rubber_stamp_rate <= 0.50 and avg_depth_score >= 0.08:
+        grade = "C"
+    else:
+        grade = "D"
+
+    grade_descriptions = {
+        "A": f"Exemplary review rigor. Avg depth {avg_depth_score:.2f} with low rubber-stamp rate ({rubber_stamp_rate*100:.1f}%).",
+        "B": f"Solid review discipline. Avg depth {avg_depth_score:.2f} across active repositories.",
+        "C": f"Moderate review depth ({avg_depth_score:.2f}). {rubber_stamp_rate*100:.1f}% of reviews were quick approvals.",
+        "D": f"High rubber-stamp rate ({rubber_stamp_rate*100:.1f}%). Review depth needs attention.",
+    }
+
+    # Per-repository statistics
+    repo_groups = defaultdict(list)
+    for p in vouch_prs:
+        repo_groups[p.get("repo", "unknown")].append(p)
+
+    per_repo_stats = []
+    for repo_name, pr_list in sorted(repo_groups.items(), key=lambda x: len(x[1]), reverse=True)[:6]:
+        r_depths = [_extract_depth(p) for p in pr_list]
+        r_stamps = sum(1 for d in r_depths if d < 0.15)
+
+        sorted_prs = sorted(pr_list, key=_extract_ts)
+        prior = sorted_prs[:-5] if len(sorted_prs) > 5 else []
+        recent = sorted_prs[-5:]
+        prior_depths = [_extract_depth(p) for p in prior]
+        recent_depths = [_extract_depth(p) for p in recent]
+        prior_avg = (sum(prior_depths) / len(prior_depths)) if prior_depths else None
+        recent_avg = (sum(recent_depths) / len(recent_depths)) if recent_depths else 0.0
+
+        if prior_avg is None:
+            trend = "stable"
+        elif recent_avg > prior_avg + 0.05:
+            trend = "improving"
+        elif recent_avg < prior_avg - 0.05:
+            trend = "degrading"
+        else:
+            trend = "stable"
+
+        sparkline = [_extract_depth(p) for p in sorted_prs[-10:]]
+
+        per_repo_stats.append({
+            "repo": repo_name,
+            "reviews_count": len(pr_list),
+            "avg_depth_score": round(sum(r_depths) / len(r_depths), 3) if r_depths else 0.0,
+            "rubber_stamp_rate": round(r_stamps / len(pr_list), 3) if pr_list else 0.0,
+            "trend": trend,
+            "sparkline": sparkline,
+        })
+
+    # Fatigue state calculation
+    now_utc = datetime.now(timezone.utc)
+    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    today_prs = [p for p in vouch_prs if _extract_ts(p) >= today_start.timestamp()]
+    consecutive_today = len(today_prs)
+
+    def is_off_hours(ts: float) -> bool:
+        if not ts:
+            return False
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.hour >= 23 or dt.hour < 6
+
+    def is_weekend(ts: float) -> bool:
+        if not ts:
+            return False
+        return datetime.fromtimestamp(ts, tz=timezone.utc).weekday() >= 5
+
+    off_hours_count = sum(1 for p in vouch_prs if is_off_hours(_extract_ts(p)))
+    off_hours_pct = (off_hours_count / total_reviews_in_vouch) if total_reviews_in_vouch else 0.0
+
+    weekend_count = sum(1 for p in vouch_prs if is_weekend(_extract_ts(p)))
+    weekend_pct = (weekend_count / total_reviews_in_vouch) if total_reviews_in_vouch else 0.0
+
+    # Session depth trend: slope of last 10 review depth scores
+    last_10 = sorted(vouch_prs, key=_extract_ts)[-10:]
+    if len(last_10) >= 3:
+        depths_seq = [_extract_depth(p) for p in last_10]
+        n = len(depths_seq)
+        xs = list(range(n))
+        x_mean = sum(xs) / n
+        y_mean = sum(depths_seq) / n
+        denom = sum((x - x_mean) ** 2 for x in xs)
+        slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, depths_seq)) / denom if denom != 0 else 0.0
+    else:
+        slope = 0.0
+
+    if consecutive_today >= 8 or (off_hours_pct > 0.35 and avg_depth_score < 0.35):
+        fatigue_state_label = "high"
+    elif consecutive_today >= 4 or slope < -0.05:
+        fatigue_state_label = "moderate"
+    else:
+        fatigue_state_label = "healthy"
+
+    all_ts = [_extract_ts(p) for p in vouch_prs if _extract_ts(p) > 0]
+    last_hour = datetime.fromtimestamp(max(all_ts), tz=timezone.utc).hour if all_ts else 0
+
+    fatigue_state = {
+        "state": fatigue_state_label,
+        "z_score": round(slope * -10, 2),
+        "consecutive_reviews_today": consecutive_today,
+        "last_review_hour": last_hour,
+        "off_hours_reviews_pct": round(off_hours_pct * 100, 1),
+        "weekend_reviews_pct": round(weekend_pct * 100, 1),
+        "session_depth_trend": round(slope, 4),
+    }
+
+    # Priority queue: open PRs where reviewer is assigned
+    open_assigned = []
+    u_lower = clean_username.lower()
+    for p in vouch_prs:
+        if p.get("state") == "open":
+            r_list = p.get("reviewers") or []
+            r_single = p.get("reviewer") or ""
+            is_assigned = False
+            if isinstance(r_list, list) and any(str(r).strip().lower() == u_lower for r in r_list if r):
+                is_assigned = True
+            elif isinstance(r_list, str) and r_list.strip().lower() == u_lower:
+                is_assigned = True
+            elif isinstance(r_single, str) and r_single.strip().lower() == u_lower:
+                is_assigned = True
+
+            if is_assigned:
+                open_assigned.append(p)
+
+    open_assigned.sort(key=lambda p: float(p.get("change_risk", 0.0) or 0.0), reverse=True)
+
+    priority_queue = []
+    for p in open_assigned[:15]:
+        opened_ts = p.get("created_at")
+        wait_hours = 0.0
+        if opened_ts:
+            try:
+                if isinstance(opened_ts, (int, float)):
+                    wait_hours = (datetime.now(timezone.utc).timestamp() - float(opened_ts)) / 3600
+                else:
+                    opened_dt = datetime.fromisoformat(str(opened_ts).replace("Z", "+00:00"))
+                    wait_hours = (datetime.now(timezone.utc) - opened_dt).total_seconds() / 3600
+            except Exception:
+                pass
+
+        cr = float(p.get("change_risk", 0.0) or 0.0)
+        risk_tier = "high" if cr >= 0.65 else ("medium" if cr >= 0.35 else "low")
+        pr_num = p.get("number") or p.get("pr_number", 0)
+
+        priority_queue.append({
+            "pr_key": p.get("pr_key", f"{p.get('repo', '')}#{pr_num}"),
+            "repo": p.get("repo", ""),
+            "title": str(p.get("title", ""))[:60],
+            "number": int(pr_num),
+            "change_risk": round(cr, 3),
+            "risk_tier": risk_tier,
+            "wait_hours": round(wait_hours, 1),
+            "path_flags": p.get("path_flags", []),
+            "url": p.get("html_url", f"https://github.com/{p.get('repo', '')}/pull/{pr_num}"),
+        })
+
+    # LLM Intervention
+    next_pr = priority_queue[0] if priority_queue else None
+    trend_pct = abs(int(slope * 100)) if slope < 0 else 0
+
+    intervention_input = {
+        "reviewer": clean_username,
+        "fatigue_state": fatigue_state_label,
+        "z_score": fatigue_state["z_score"],
+        "consecutive_reviews_today": consecutive_today,
+        "session_depth_trend": slope,
+        "rubber_stamp_rate": f"{rubber_stamp_rate*100:.1f}%",
+        "off_hours_pct": f"{off_hours_pct*100:.1f}%",
+        "trend_pct": str(trend_pct),
+        "next_high_risk_pr": {
+            "repo": next_pr["repo"],
+            "number": next_pr["number"],
+            "change_risk": next_pr["change_risk"],
+            "path_flags": next_pr["path_flags"],
+            "wait_hours": next_pr["wait_hours"],
+        } if next_pr else None,
+    }
+
+    try:
+        from explain.bedrock_client import BedrockClient
+        intervention_text, intervention_bot = BedrockClient().generate_reviewer_intervention_with_meta(intervention_input)
+    except Exception as exc:
+        logger.error("Failed to generate intervention for %s: %s", clean_username, exc)
+        intervention_text = "Reviewer cadence and depth scores are monitored."
+        intervention_bot = "Vouch Rule Engine"
+
+    # Strip any emojis/pictographs from the intervention text
+    emoji_re = re.compile(
+        r"[\U00010000-\U0010ffff\u2600-\u27bf\u2300-\u23ff\u2b50\u2b55\u200d\ufe0f\ufe0e]+",
+        flags=re.UNICODE,
+    )
+    intervention_text = emoji_re.sub("", intervention_text)
+    intervention_text = re.sub(r" +", " ", intervention_text).strip()
+
+    recent_reviewers = store.get_all_reviewer_usernames(limit=10)
+
+    return {
+        "username": clean_username,
+        "github_profile": gh_profile,
+        "github_rate_limited": github_rate_limited,
+        "total_reviews_in_vouch": total_reviews_in_vouch,
+        "avg_depth_score": round(avg_depth_score, 3),
+        "rubber_stamp_rate": round(rubber_stamp_rate, 3),
+        "high_risk_rubber_stamped": high_risk_rubber_stamped,
+        "grade": grade,
+        "grade_description": grade_descriptions[grade],
+        "domain_expertise": top_domains,
+        "per_repo_stats": per_repo_stats,
+        "fatigue_state": fatigue_state,
+        "priority_queue": priority_queue,
+        "intervention": intervention_text,
+        "intervention_bot": intervention_bot,
+        "recent_reviewers": recent_reviewers,
+    }
+
+
+@app.route("/reviewer")
+def reviewer_search():
+    recent = store.get_all_reviewer_usernames(limit=10)
+    total_reviewers = len(store.get_all_reviewer_usernames(limit=None))
+    total_repos = len(store.get_repos())
+    return render_template(
+        "reviewer.html",
+        mode="search",
+        recent_reviewers=recent,
+        total_reviewers=total_reviewers,
+        total_repos=total_repos,
+    )
+
+
+
+@app.route("/reviewer/<username>")
+def reviewer_profile(username):
+    if request.args.get("refresh"):
+        _reviewer_cache.pop(username, None)
+
+    cached = _reviewer_cache.get(username)
+    if cached and (time.time() - cached["ts"]) < REVIEWER_CACHE_TTL:
+        data = dict(cached["data"])
+        data["is_self"] = (session.get("github_login") == username)
+        return render_template("reviewer.html", mode="profile", **data)
+
+    gh_token = session.get("github_token") or request.args.get("token")
+    try:
+        data = _build_reviewer_profile(username, gh_token)
+    except ValueError as e:
+        return render_template(
+            "reviewer.html",
+            mode="not_found",
+            username=username,
+            error=str(e),
+        ), 404
+    except Exception as e:
+        app.logger.error("Reviewer profile error for %s: %s", username, e)
+        return render_template(
+            "reviewer.html",
+            mode="error",
+            username=username,
+            error="Failed to load reviewer profile.",
+        ), 500
+
+    _reviewer_cache[username] = {"data": dict(data), "ts": time.time()}
+    data["is_self"] = (session.get("github_login") == username)
+    return render_template("reviewer.html", mode="profile", **data)
+
+
+@app.route("/api/reviewer/<username>")
+def api_reviewer(username):
+    cached = _reviewer_cache.get(username)
+    if cached and (time.time() - cached["ts"]) < REVIEWER_CACHE_TTL:
+        return jsonify(cached["data"])
+    gh_token = session.get("github_token") or request.args.get("token")
+    try:
+        data = _build_reviewer_profile(username, gh_token)
+        _reviewer_cache[username] = {"data": dict(data), "ts": time.time()}
+        return jsonify(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/reviewer/<username>/refresh")
+def api_reviewer_refresh(username):
+    _reviewer_cache.pop(username, None)
+    return jsonify({"status": "cache cleared", "username": username})
+
+
 if __name__ == "__main__":
+<<<<<<< HEAD
+=======
+
+>>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     app.run(debug=True, port=5000)
