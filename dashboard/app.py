@@ -1367,7 +1367,7 @@ def landing_page():
     computed_oauth_callback_uri = _oauth_callback_uri()
     computed_app_callback_uri = _app_setup_callback_uri()
 
-    raw_yt = os.environ.get("YOUTUBE_DEMO_URL", "").strip() or "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    raw_yt = os.environ.get("YOUTUBE_DEMO_URL", "").strip() or "https://youtu.be/m5iM3ArUbz0"
     vid_match = re.search(r"(?:v=|\/embed\/|youtu\.be\/|\/v\/|watch\?v=)([a-zA-Z0-9_-]{11})", raw_yt)
     youtube_embed_url = f"https://www.youtube.com/embed/{vid_match.group(1)}" if vid_match else raw_yt
     youtube_url = raw_yt
