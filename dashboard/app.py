@@ -1494,7 +1494,7 @@ def auth_github_app_callback():
         session["user_avatar"] = account.get("avatar_url", "")
         session["rate_limit"] = {"limit": 5000, "remaining": 5000}
 
-        return redirect(url_for("repos_page", from_auth="1"))
+        return redirect(url_for("repos_page"))
     except Exception as exc:
         return redirect(url_for("landing_page", error=f"GitHub App token exchange failed: {exc}"))
 
@@ -1565,7 +1565,7 @@ def auth_github():
                     "limit": rate_data.get("limit", 5000),
                     "remaining": rate_data.get("remaining", 5000),
                 }
-                return redirect(url_for("repos_page", from_auth="1"))
+                return redirect(url_for("repos_page"))
             else:
                 return redirect(url_for("landing_page", error="Could not authenticate with GitHub token. Please verify your token."))
         except Exception as exc:
@@ -1647,7 +1647,7 @@ def auth_github_callback():
             "remaining": rate_data.get("remaining", 5000),
         }
 
-        return redirect(url_for("repos_page", from_auth="1"))
+        return redirect(url_for("repos_page"))
     except Exception as exc:
         return redirect(url_for("landing_page", error=f"OAuth connection error: {str(exc)}"))
 
