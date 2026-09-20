@@ -3945,6 +3945,17 @@ html {
   color: var(--color-success-fg, #3fb950) !important;
 }
 
+/* Universal Status Color & Background Utilities */
+.color-danger { color: var(--color-danger-fg) !important; }
+.color-attention { color: var(--color-attention-fg) !important; }
+.color-success { color: var(--color-success-fg) !important; }
+.color-done { color: var(--color-done-fg) !important; }
 
+.bg-danger { background-color: var(--color-danger-fg) !important; }
+.bg-attention { background-color: var(--color-attention-fg) !important; }
+.bg-success { background-color: var(--color-success-fg) !important; }
+.bg-done { background-color: var(--color-done-fg) !important; }
 
-
+.border-fatigue-high { border-left: 3px solid var(--color-danger-fg) !important; }
+.border-fatigue-moderate { border-left: 3px solid var(--color-attention-fg) !important; }
+.border-fatigue-healthy { border-left: 3px solid var(--color-success-fg) !important; }

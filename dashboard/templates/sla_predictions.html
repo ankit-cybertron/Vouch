@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}SLA Predictions{% endblock %}
+{% block meta_description %}Proactive SLA breach detection — predicted before it happens{% endblock %}
+{% block content %}
+<div style="max-width:1280px; margin:0 auto; padding:24px;">
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
+    <div>
+      <h1 style="font-size:22px; font-weight:700; color:var(--color-fg-default); margin:0 0 4px;">Review SLA Predictions</h1>
+      <p style="color:var(--color-fg-muted); font-size:13px; margin:0;">Proactive breach detection — predicted {{ horizon_hours }} hours before it happens</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span class="gh-label" style="font-size:12px;">SLA: {{ sla_hours }}h</span>
+      <a href="/sla-predictions" class="gh-btn gh-btn-sm">Refresh</a>
+    </div>
+  </div>
+
+  {% if breached_count > 0 %}
+  <div style="margin-bottom:16px; padding:12px 16px; background:var(--color-danger-subtle); border:1px solid var(--color-danger-fg); border-radius:6px; font-size:13px; color:var(--color-fg-default);">
+    {{ breached_count }} PR{{ 's' if breached_count != 1 else '' }} have already breached the {{ sla_hours }}-hour SLA and are awaiting review.
+  </div>
+  {% endif %}
+
+  {# KPI Row #}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; margin-bottom:24px;">
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-danger-fg);">{{ breached_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Already Breached</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-danger-fg);">{{ imminent_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Imminent (&lt; 2h)</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-attention-fg);">{{ at_risk_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">At Risk (&lt; 8h)</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-fg-default);">{{ warning_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Warning</div></div>
+  </div>
+
+  {# Main Predictions Table #}
+  <div class="gh-box" style="margin-bottom:24px;">
+    <div class="gh-box-header"><h2 style="font-size:15px; font-weight:600; margin:0;">PRs at risk of SLA breach — ranked by urgency</h2></div>
+    {% if predictions %}
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr style="background:var(--color-canvas-subtle);">
+          <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Status</th>
+          <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">PR</th>
+          <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Repo</th>
+          <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Age</th>
+          <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">SLA Remaining</th>
+          <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Breach In</th>
+          <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Breach Prob.</th>
+          <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Change Risk</th>
+          <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Reviewer Load</th>
+          <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Action</th>
+        </tr></thead>
+        <tbody>
+          {% for p in predictions %}
+          <tr style="border-bottom:1px solid var(--color-border-muted);">
+            <td style="padding:10px 12px; text-align:center;">
+              {% if p.status == "breached" %}<span class="gh-label gh-label-high">BREACHED</span>
+              {% elif p.status == "imminent" %}<span class="gh-label gh-label-high">IMMINENT</span>
+              {% elif p.status == "at_risk" %}<span class="gh-label gh-label-medium">AT RISK</span>
+              {% else %}<span class="gh-label" style="background:var(--color-attention-subtle); color:var(--color-attention-fg);">WARNING</span>{% endif %}
+            </td>
+            <td style="padding:10px 12px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              <a href="/pr/{{ p.repo }}/{{ p.number }}" style="color:var(--color-accent-fg); text-decoration:none; font-weight:500;">#{{ p.number }} {{ p.title[:40] }}{% if p.title|length > 40 %}...{% endif %}</a>
+            </td>
+            <td style="padding:10px 12px; font-size:12px; color:var(--color-fg-muted);">{{ p.repo }}</td>
+            <td style="padding:10px 12px; text-align:center; font-size:12px;">{{ p.age_hours }}h</td>
+            <td class="{% if p.sla_remaining_hours < 0 %}color-danger{% elif p.sla_remaining_hours < 8 %}color-attention{% else %}color-success{% endif %}" style="padding:10px 12px; text-align:center; font-size:12px; font-weight:600;">
+              {% if p.sla_remaining_hours < 0 %}BREACHED{% else %}{{ p.sla_remaining_hours }}h{% endif %}
+            </td>
+            <td style="padding:10px 12px; text-align:center; font-size:12px; font-weight:600; color:var(--color-danger-fg);">
+              {% if p.status == "breached" %}now{% else %}{{ p.predicted_breach_in }}h{% endif %}
+            </td>
+            <td style="padding:10px 12px; min-width:100px;">
+              {% set bp = (p.breach_probability * 100)|int %}
+              <div style="display:flex; align-items:center; gap:6px;">
+                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div class="bg-danger" data-fill-width="{{ bp }}" style="height:100%; border-radius:3px;"></div></div>
+                <span style="font-size:11px; color:var(--color-fg-muted); min-width:30px;">{{ bp }}%</span>
+              </div>
+            </td>
+            <td style="padding:10px 12px; text-align:center;">
+              {% if p.change_risk >= 0.65 %}<span class="gh-label gh-label-high">{{ "%.2f"|format(p.change_risk) }}</span>
+              {% elif p.change_risk >= 0.35 %}<span class="gh-label gh-label-medium">{{ "%.2f"|format(p.change_risk) }}</span>
+              {% else %}<span class="gh-label gh-label-low">{{ "%.2f"|format(p.change_risk) }}</span>{% endif %}
+            </td>
+            <td style="padding:10px 12px; min-width:110px;">
+              {% if not p.reviewers %}
+              <span style="color:var(--color-danger-fg); font-size:12px; font-weight:600;">Unassigned</span>
+              {% else %}
+              {% set lp = (p.reviewer_avg_load * 100)|int %}
+              <div style="display:flex; align-items:center; gap:6px;">
+                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div class="bg-attention" data-fill-width="{{ lp }}" style="height:100%; border-radius:3px;"></div></div>
+                <span style="font-size:11px; color:var(--color-fg-muted); min-width:30px;">{{ lp }}%</span>
+              </div>
+              {% endif %}
+            </td>
+            <td style="padding:10px 12px;">
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <a href="/pr/{{ p.repo }}/{{ p.number }}" class="gh-btn gh-btn-sm" style="font-size:11px;">View PR</a>
+                {% if p.html_url %}<a href="{{ p.html_url }}" target="_blank" rel="noopener noreferrer" class="gh-btn gh-btn-sm" style="font-size:11px;">GitHub</a>{% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="padding:48px; text-align:center; color:var(--color-fg-muted);">No PRs at risk of SLA breach. All open PRs are within the {{ sla_hours }}-hour SLA window.</div>
+    {% endif %}
+  </div>
+
+  {# Methodology #}
+  <div class="gh-box">
+    <div class="gh-box-header"><h2 style="font-size:15px; font-weight:600; margin:0;">How SLA Predictions Work</h2></div>
+    <div style="padding:16px; font-size:13px; color:var(--color-fg-default); line-height:1.7;">
+      <p style="margin:0 0 12px;">Vouch predicts SLA breaches by combining two signals:</p>
+      <ol style="margin:0 0 12px; padding-left:20px;">
+        <li><strong>Age fraction</strong> — how close the PR already is to the {{ sla_hours }}-hour limit</li>
+        <li><strong>Reviewer load</strong> — if all assigned reviewers are currently overloaded, the review is statistically less likely to arrive before the deadline</li>
+      </ol>
+      <p style="margin:0 0 8px; font-family:'JetBrains Mono',monospace; font-size:12px; background:var(--color-canvas-subtle); padding:8px 12px; border-radius:6px;">Breach probability = (age_fraction × 0.60) + (reviewer_avg_load × 0.40)</p>
+      <p style="margin:0; color:var(--color-fg-muted);">Predictions surface {{ horizon_hours }} hours before the projected breach, giving engineering managers time to reassign or escalate. This is a model — not a guarantee. Use it to prioritise, not to blame.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

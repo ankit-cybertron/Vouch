@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Load Balancing{% endblock %}
+{% block meta_description %}Real-time reviewer capacity and assignment recommendations{% endblock %}
+{% block content %}
+<div style="max-width:1280px; margin:0 auto; padding:24px;">
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
+    <div>
+      <h1 style="font-size:22px; font-weight:700; color:var(--color-fg-default); margin:0 0 4px;">Load Balancing</h1>
+      <p style="color:var(--color-fg-muted); font-size:13px; margin:0;">Real-time reviewer capacity and assignment recommendations</p>
+    </div>
+    <a href="/load-balancing" class="gh-btn gh-btn-sm">Refresh</a>
+  </div>
+
+  {# KPI Row #}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-bottom:24px;">
+    <div class="gh-box" style="padding:16px; text-align:center;">
+      <div style="font-size:28px; font-weight:700; color:var(--color-fg-default);">{{ reviewers|length }}</div>
+      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Total Reviewers</div>
+    </div>
+    <div class="gh-box" style="padding:16px; text-align:center;">
+      <div style="font-size:28px; font-weight:700; color:var(--color-danger-fg);">{{ overloaded_count }}</div>
+      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Overloaded</div>
+    </div>
+    <div class="gh-box" style="padding:16px; text-align:center;">
+      <div style="font-size:28px; font-weight:700; color:var(--color-success-fg);">{{ available_count }}</div>
+      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Available</div>
+    </div>
+    <div class="gh-box" style="padding:16px; text-align:center;">
+      <div style="font-size:28px; font-weight:700; color:var(--color-attention-fg);">{{ unassigned_high_risk|length }}</div>
+      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Unassigned High-Risk PRs</div>
+    </div>
+  </div>
+
+  {# Section 1: Reviewer Capacity Table #}
+  <div class="gh-box" style="margin-bottom:24px;">
+    <div class="gh-box-header"><h2 style="font-size:15px; font-weight:600; margin:0;">Reviewer Workload — right now</h2></div>
+    {% if reviewers %}
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="background:var(--color-canvas-subtle);">
+            <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Reviewer</th>
+            <th style="padding:8px 12px; text-align:left; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Load</th>
+            <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Today</th>
+            <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">This Week</th>
+            <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Open</th>
+            <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">High-Risk</th>
+            <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Avg Depth</th>
+            <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Fatigue</th>
+            <th style="padding:8px 12px; text-align:center; font-weight:600; color:var(--color-fg-muted); border-bottom:1px solid var(--color-border-default);">Capacity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in reviewers %}
+          {% set load = r.current_load_score %}
+          <tr style="border-bottom:1px solid var(--color-border-muted);">
+            <td style="padding:10px 12px;"><a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); font-weight:500; text-decoration:none;">@{{ r.login }}</a></td>
+            <td style="padding:10px 12px; min-width:120px;">
+              <div style="display:inline-flex; align-items:center; gap:8px; width:100%;">
+                <div style="flex:1; height:8px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;"><div class="{% if load >= 0.70 %}bg-danger{% elif load >= 0.40 %}bg-attention{% else %}bg-success{% endif %}" data-fill-width="{{ (load * 100)|int }}" style="height:100%; border-radius:4px;"></div></div>
+                <span class="{% if load >= 0.70 %}color-danger{% elif load >= 0.40 %}color-attention{% else %}color-success{% endif %}" style="font-size:11px; font-weight:600; min-width:36px;">{{ (load * 100)|int }}%</span>
+              </div>
+            </td>
+            <td style="padding:10px 12px; text-align:center;">{{ r.reviews_today }}</td>
+            <td style="padding:10px 12px; text-align:center;">{{ r.reviews_this_week }}</td>
+            <td style="padding:10px 12px; text-align:center;">{{ r.open_assigned }}</td>
+            <td style="padding:10px 12px; text-align:center;">{{ r.high_risk_reviews }}</td>
+            <td style="padding:10px 12px; text-align:center;">{{ r.avg_depth_score }}</td>
+            <td style="padding:10px 12px; text-align:center;">
+              {% if r.fatigue_state == "high" %}<span class="gh-label gh-label-high">High</span>
+              {% elif r.fatigue_state == "moderate" %}<span class="gh-label gh-label-medium">Moderate</span>
+              {% else %}<span class="gh-label gh-label-low">Healthy</span>{% endif %}
+            </td>
+            <td style="padding:10px 12px; text-align:center;">
+              {% if r.capacity_tier == "overloaded" %}<span class="gh-label gh-label-high">Overloaded</span>
+              {% elif r.capacity_tier == "busy" %}<span class="gh-label gh-label-medium">Busy</span>
+              {% else %}<span class="gh-label gh-label-low">Available</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="padding:40px; text-align:center; color:var(--color-fg-muted);">No reviewer data yet. Add repositories and score PRs to see workload.</div>
+    {% endif %}
+  </div>
+
+  {# Section 2: Assignment Suggestions #}
+  <div class="gh-box" style="margin-bottom:24px;">
+    <div class="gh-box-header">
+      <h2 style="font-size:15px; font-weight:600; margin:0;">Suggested Assignments — unassigned high-risk PRs</h2>
+      <p style="color:var(--color-fg-muted); font-size:12px; margin:4px 0 0;">Ranked by domain match + available capacity. Vouch recommends — assign manually on GitHub.</p>
+    </div>
+    {% if suggestions %}
+    <div style="padding:12px; display:flex; flex-direction:column; gap:12px;">
+      {% for s in suggestions %}
+      {% if s.change_risk >= 0.65 %}{% set rc = "gh-label-high" %}{% set rl = "HIGH" %}{% set border_class = "border-fatigue-high" %}
+      {% elif s.change_risk >= 0.35 %}{% set rc = "gh-label-medium" %}{% set rl = "MEDIUM" %}{% set border_class = "border-fatigue-moderate" %}
+      {% else %}{% set rc = "gh-label-low" %}{% set rl = "LOW" %}{% set border_class = "border-fatigue-healthy" %}{% endif %}
+      <div class="gh-box {{ border_class }}" style="padding:14px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;"><span class="gh-label {{ rc }}">{{ rl }}</span><span style="font-size:12px; color:var(--color-fg-muted);">{{ s.repo }} #{{ s.number }}</span></div>
+        <div style="font-size:14px; font-weight:600; color:var(--color-fg-default); margin-bottom:8px;">{{ s.title }}</div>
+        <div style="font-size:12px; color:var(--color-fg-muted); margin-bottom:8px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+          <span>Waiting: {{ s.wait_hours }}h</span><span>Change Risk: {{ "%.2f"|format(s.change_risk) }}</span>
+          {% for flag in s.path_flags %}<span class="gh-label">{{ flag }}</span>{% endfor %}
+        </div>
+        {% if s.suggested_reviewer %}
+        <div style="background:var(--color-canvas-subtle); border-radius:6px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div>Suggested: <a href="/reviewer/{{ s.suggested_reviewer }}" style="color:var(--color-accent-fg); font-weight:600; text-decoration:none;">@{{ s.suggested_reviewer }}</a>
+            <span style="color:var(--color-fg-muted); font-size:12px; margin-left:8px;">Domain match: {{ (s.domain_match * 100)|int }}%</span>
+          </div>
+          <div style="display:flex; gap:8px;">
+            {% if s.html_url %}<a href="{{ s.html_url }}" target="_blank" rel="noopener noreferrer" class="gh-btn gh-btn-sm">Assign on GitHub</a>{% endif %}
+            <a href="/pr/{{ s.repo }}/{{ s.number }}" class="gh-btn gh-btn-sm">View PR</a>
+          </div>
+        </div>
+        {% else %}<div style="font-size:12px; color:var(--color-fg-muted);">No available reviewers found.</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:40px; text-align:center; color:var(--color-fg-muted);">No unassigned high-risk PRs. All open PRs have reviewers assigned.</div>
+    {% endif %}
+  </div>
+
+  {# Section 3: Load Distribution Chart #}
+  <div class="gh-box">
+    <div class="gh-box-header"><h2 style="font-size:15px; font-weight:600; margin:0;">Load Distribution</h2></div>
+    {% if reviewers %}
+    <div style="padding:16px; display:flex; flex-direction:column; gap:8px;">
+      {% for r in reviewers[:15] %}
+      {% set load = r.current_load_score %}
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:120px; font-size:12px; text-align:right; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); text-decoration:none;">@{{ r.login }}</a></div>
+        <div style="flex:1; height:14px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;"><div class="{% if load >= 0.70 %}bg-danger{% elif load >= 0.40 %}bg-attention{% else %}bg-success{% endif %}" data-fill-width="{{ (load * 100)|int }}" style="height:100%; border-radius:4px;"></div></div>
+        <div style="width:36px; font-size:11px; color:var(--color-fg-muted); flex-shrink:0;">{{ (load * 100)|int }}%</div>
+        <div style="width:80px; flex-shrink:0;">
+          {% if r.capacity_tier == "overloaded" %}<span class="gh-label gh-label-high">Overloaded</span>
+          {% elif r.capacity_tier == "busy" %}<span class="gh-label gh-label-medium">Busy</span>
+          {% else %}<span class="gh-label gh-label-low">Available</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}<div style="padding:40px; text-align:center; color:var(--color-fg-muted);">No data yet.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

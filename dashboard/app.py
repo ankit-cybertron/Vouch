@@ -297,6 +297,11 @@ REPO_PRS_CACHE: dict[str, list[dict]] = {}
 _reviewer_cache: dict = {}   # {username: {"data": dict, "ts": float}}
 REVIEWER_CACHE_TTL: int = 300  # 5 minutes
 
+# Analytics caches (2-minute TTL) for Features 1, 5, 6, 8
+_health_cache: dict = {}    # {"org_health": {"data": dict, "ts": float}}
+_lb_cache: dict = {}        # {"load_balancing": {"data": dict, "ts": float}}
+_pair_cache: dict = {}      # {"pair_intel": {"data": dict, "ts": float}}
+HEALTH_CACHE_TTL: int = 120  # 2 minutes
 
 
 
@@ -1494,7 +1499,7 @@ def auth_github_app_callback():
         session["user_avatar"] = account.get("avatar_url", "")
         session["rate_limit"] = {"limit": 5000, "remaining": 5000}
 
-        return redirect(url_for("repos_page"))
+        return redirect(url_for("repos_page", from_auth="1"))
     except Exception as exc:
         return redirect(url_for("landing_page", error=f"GitHub App token exchange failed: {exc}"))
 
@@ -1565,7 +1570,7 @@ def auth_github():
                     "limit": rate_data.get("limit", 5000),
                     "remaining": rate_data.get("remaining", 5000),
                 }
-                return redirect(url_for("repos_page"))
+                return redirect(url_for("repos_page", from_auth="1"))
             else:
                 return redirect(url_for("landing_page", error="Could not authenticate with GitHub token. Please verify your token."))
         except Exception as exc:
@@ -1647,7 +1652,7 @@ def auth_github_callback():
             "remaining": rate_data.get("remaining", 5000),
         }
 
-        return redirect(url_for("repos_page"))
+        return redirect(url_for("repos_page", from_auth="1"))
     except Exception as exc:
         return redirect(url_for("landing_page", error=f"OAuth connection error: {str(exc)}"))
 
@@ -2497,34 +2502,598 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
 @app.route("/team-health")
 @app.route("/validation")
 def team_health():
-    repo_arg = request.args.get("repo", None)
-    if not repo_arg:
-        recent_repos = []
-        seen = set()
-        for repo_dict in list(FETCHED_REPOS.values()):
-            fn = repo_dict.get("full_name") or f"{repo_dict.get('owner')}/{repo_dict.get('repo')}"
-            if fn and fn not in seen:
-                seen.add(fn)
-                recent_repos.append(repo_dict)
-        return render_template(
-            "team_health.html",
-            mode="search",
-            recent_repos=recent_repos[:12],
-            total_repos=len(FETCHED_REPOS),
-            repos=list(FETCHED_REPOS.values()),
-            active_repo=None,
-            health=_compute_team_health(repo_filter="all"),
-        )
+    try:
+        data = _build_org_health_data()
+    except Exception as e:
+        logger.error("team_health route error: %s", e)
+        data = _empty_org_health()
+    return render_template("team_health.html", **data)
 
-    repo_filter = repo_arg
-    health_data = _compute_team_health(repo_filter=repo_filter)
-    return render_template(
-        "team_health.html",
-        mode="report",
-        health=health_data,
-        repos=list(FETCHED_REPOS.values()),
-        active_repo=repo_filter,
-    )
+
+# ── Feature 8: _build_org_health_data ───────────────────────────────────────
+
+def _empty_org_health() -> dict:
+    return {
+        "reviewer_cards": [],
+        "module_safety": [],
+        "org_kpis": {
+            "total_prs_scored": 0, "open_prs": 0, "high_risk_open": 0,
+            "requeued_total": 0, "org_rubber_stamp_rate": 0.0,
+            "avg_residual_risk": 0.0, "total_repos": 0, "total_reviewers": 0,
+            "high_fatigue_count": 0, "healthy_count": 0,
+        },
+        "repos": [],
+        "pacing": {"rushed": 0, "brief": 0, "standard": 0, "thorough": 0,
+                   "rushed_pct": 0, "brief_pct": 0, "standard_pct": 0, "thorough_pct": 0},
+        "discrepancies": {"rapid_merge": 0, "self_review": 0, "no_reviewer": 0,
+                          "wip_merged": 0, "rubber_stamps": 0, "high_residual_requeued": 0},
+    }
+
+
+def _build_org_health_data() -> dict:
+    """Org-wide reviewer health data for Feature 8 (/team-health redesign)."""
+    global _health_cache
+    cached = _health_cache.get("org_health")
+    if cached and (time.time() - cached["ts"]) < HEALTH_CACHE_TTL:
+        return cached["data"]
+
+    try:
+        all_prs = store.get_prs()
+        repos = store.get_repos()
+        now = time.time()
+
+        # Org-level KPIs
+        total_prs_scored = len(all_prs)
+        open_prs = [p for p in all_prs if p.get("state") == "open"]
+        high_risk_open = [p for p in open_prs if p.get("change_risk", 0) >= 0.65]
+        requeued_prs = [p for p in all_prs if p.get("re_queued")]
+        all_depths = [p.get("review_depth", 0) for p in all_prs if p.get("review_depth") is not None]
+        org_rubber_stamp_rate = sum(1 for d in all_depths if d < 0.15) / len(all_depths) \
+                                if all_depths else 0.0
+        avg_residual_risk = sum(p.get("residual_risk", 0) for p in all_prs) / total_prs_scored \
+                            if total_prs_scored else 0.0
+
+        # Per-reviewer health cards
+        reviewer_map: dict = {}
+        for pr in all_prs:
+            for reviewer in pr.get("reviewers", []):
+                if not reviewer or not isinstance(reviewer, str):
+                    continue
+                if reviewer not in reviewer_map:
+                    reviewer_map[reviewer] = {
+                        "login": reviewer,
+                        "reviews_total": 0, "reviews_today": 0, "reviews_week": 0,
+                        "depth_scores": [], "residual_risks": [], "requeued_count": 0,
+                        "high_risk_count": 0, "rubber_stamps": 0, "path_flags_all": [],
+                        "scored_ats": [], "off_hours_count": 0, "weekend_count": 0,
+                    }
+                rm = reviewer_map[reviewer]
+                rm["reviews_total"] += 1
+                scored_at = pr.get("scored_at", 0)
+                rm["scored_ats"].append(scored_at)
+                if scored_at >= now - 86400:  rm["reviews_today"] += 1
+                if scored_at >= now - 604800: rm["reviews_week"] += 1
+                depth = pr.get("review_depth")
+                if depth is not None:
+                    rm["depth_scores"].append(depth)
+                    if depth < 0.15: rm["rubber_stamps"] += 1
+                rr = pr.get("residual_risk")
+                if rr is not None: rm["residual_risks"].append(rr)
+                if pr.get("re_queued"): rm["requeued_count"] += 1
+                if pr.get("change_risk", 0) >= 0.65: rm["high_risk_count"] += 1
+                rm["path_flags_all"].extend(pr.get("path_flags", []))
+                if scored_at:
+                    dt = datetime.utcfromtimestamp(scored_at)
+                    if dt.hour >= 23 or dt.hour < 6: rm["off_hours_count"] += 1
+                    if dt.weekday() >= 5: rm["weekend_count"] += 1
+
+        reviewer_cards = []
+        from collections import Counter
+        for login, rm in reviewer_map.items():
+            depths = rm["depth_scores"]
+            avg_depth = sum(depths) / len(depths) if depths else 0.0
+            rrs = rm["residual_risks"]
+            avg_rr = sum(rrs) / len(rrs) if rrs else 0.0
+            rs_rate = rm["rubber_stamps"] / rm["reviews_total"] if rm["reviews_total"] else 0.0
+            off_pct = rm["off_hours_count"] / rm["reviews_total"] * 100 if rm["reviews_total"] else 0
+            wknd_pct = rm["weekend_count"] / rm["reviews_total"] * 100 if rm["reviews_total"] else 0
+
+            # Depth trend: compare last 5 vs prior 5
+            sorted_depths = [d for _, d in sorted(zip(rm["scored_ats"], depths), key=lambda x: x[0])]
+            if len(sorted_depths) >= 6:
+                prior_avg = sum(sorted_depths[:-5]) / (len(sorted_depths) - 5)
+                recent_avg = sum(sorted_depths[-5:]) / 5
+                if recent_avg > prior_avg + 0.05:   trend = "improving"
+                elif recent_avg < prior_avg - 0.05: trend = "degrading"
+                else:                               trend = "stable"
+            else:
+                trend = "stable"
+
+            if rm["reviews_today"] >= 8 or off_pct > 35:   fatigue = "high"
+            elif rm["reviews_today"] >= 4 or off_pct > 15: fatigue = "moderate"
+            else:                                           fatigue = "healthy"
+
+            health_score = int(
+                avg_depth * 35 +
+                (1 - rs_rate) * 25 +
+                (1 - avg_rr) * 25 +
+                (1 - min(1.0, off_pct / 50)) * 15
+            )
+            top_domains = [d for d, _ in Counter(rm["path_flags_all"]).most_common(2)]
+            sparkline = sorted_depths[-10:]
+
+            reviewer_cards.append({
+                "login": login,
+                "reviews_total": rm["reviews_total"],
+                "reviews_today": rm["reviews_today"],
+                "reviews_week": rm["reviews_week"],
+                "avg_depth_score": round(avg_depth, 3),
+                "avg_residual_risk": round(avg_rr, 3),
+                "rubber_stamp_rate": round(rs_rate, 3),
+                "requeued_count": rm["requeued_count"],
+                "high_risk_count": rm["high_risk_count"],
+                "off_hours_pct": round(off_pct, 1),
+                "weekend_pct": round(wknd_pct, 1),
+                "trend": trend,
+                "fatigue_state": fatigue,
+                "health_score": health_score,
+                "top_domains": top_domains,
+                "sparkline": sparkline,
+            })
+
+        reviewer_cards.sort(key=lambda r: r["health_score"])
+
+        # Module safety matrix from path_flags
+        domain_matrix: dict = {}
+        for pr in all_prs:
+            for flag in pr.get("path_flags", []):
+                if flag not in domain_matrix:
+                    domain_matrix[flag] = {"touches": 0, "change_risk": [], "depth": [], "residual": []}
+                dm = domain_matrix[flag]
+                dm["touches"] += 1
+                dm["change_risk"].append(pr.get("change_risk", 0))
+                dm["depth"].append(pr.get("review_depth", 0))
+                dm["residual"].append(pr.get("residual_risk", 0))
+
+        module_safety = []
+        for domain, dm in domain_matrix.items():
+            avg_cr  = sum(dm["change_risk"]) / len(dm["change_risk"])
+            avg_dep = sum(dm["depth"]) / len(dm["depth"])
+            avg_res = sum(dm["residual"]) / len(dm["residual"])
+            module_safety.append({
+                "domain": domain, "touches": dm["touches"],
+                "avg_change_risk": round(avg_cr, 3),
+                "avg_depth": round(avg_dep, 3),
+                "avg_residual": round(avg_res, 3),
+                "status": "critical" if avg_res >= 0.65 else "warning" if avg_res >= 0.35 else "safe",
+            })
+        module_safety.sort(key=lambda m: m["avg_residual"], reverse=True)
+
+        # Review pacing distribution
+        total_non_zero = max(total_prs_scored, 1)
+        pacing = {"rushed": 0, "brief": 0, "standard": 0, "thorough": 0}
+        for pr in all_prs:
+            mins = (pr.get("review_duration_seconds") or 3600) / 60.0
+            if mins < 5:       pacing["rushed"] += 1
+            elif mins < 20:    pacing["brief"] += 1
+            elif mins < 60:    pacing["standard"] += 1
+            else:              pacing["thorough"] += 1
+        pacing["rushed_pct"]   = int(pacing["rushed"]   / total_non_zero * 100)
+        pacing["brief_pct"]    = int(pacing["brief"]    / total_non_zero * 100)
+        pacing["standard_pct"] = int(pacing["standard"] / total_non_zero * 100)
+        pacing["thorough_pct"] = int(pacing["thorough"] / total_non_zero * 100)
+
+        # Discrepancy counts
+        rubber_stamp_count = sum(
+            1 for pr in all_prs
+            if (pr.get("review_depth") or 0.5) < 0.15 or (pr.get("review_duration_seconds") or 3600) < 120
+        )
+        discrepancies = {
+            "rapid_merge": sum(1 for pr in all_prs if (pr.get("review_duration_seconds") or 3600) < 600 and pr.get("state") == "merged"),
+            "self_review": sum(1 for pr in all_prs if pr.get("author") and any(pr.get("author") == r for r in pr.get("reviewers", []))),
+            "no_reviewer": sum(1 for pr in all_prs if not pr.get("reviewers")),
+            "wip_merged": sum(1 for pr in all_prs if any(w in pr.get("title", "").lower() for w in ("wip", "draft", "dnm", "do not merge")) and pr.get("state") == "merged"),
+            "rubber_stamps": rubber_stamp_count,
+            "high_residual_requeued": len(requeued_prs),
+        }
+
+        result = {
+            "reviewer_cards": reviewer_cards,
+            "module_safety": module_safety,
+            "org_kpis": {
+                "total_prs_scored": total_prs_scored,
+                "open_prs": len(open_prs),
+                "high_risk_open": len(high_risk_open),
+                "requeued_total": len(requeued_prs),
+                "org_rubber_stamp_rate": round(org_rubber_stamp_rate * 100, 1),
+                "avg_residual_risk": round(avg_residual_risk, 3),
+                "total_repos": len(repos),
+                "total_reviewers": len(reviewer_cards),
+                "high_fatigue_count": sum(1 for r in reviewer_cards if r["fatigue_state"] == "high"),
+                "healthy_count": sum(1 for r in reviewer_cards if r["fatigue_state"] == "healthy"),
+            },
+            "repos": list(repos.values()),
+            "pacing": pacing,
+            "discrepancies": discrepancies,
+        }
+        _health_cache["org_health"] = {"data": result, "ts": time.time()}
+        return result
+    except Exception as e:
+        logger.error("_build_org_health_data error: %s", e)
+        return _empty_org_health()
+
+
+@app.route("/api/team-health/refresh")
+def team_health_cache_refresh():
+    """Bust the org health cache and return fresh data."""
+    global _health_cache
+    _health_cache.clear()
+    return jsonify({"status": "ok", "message": "Cache cleared"})
+
+
+@app.route("/api/team-health/export")
+def export_team_health_csv():
+    """Export reviewer health data as CSV."""
+    import csv, io
+    from flask import Response
+    try:
+        data = _build_org_health_data()
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=[
+            "login", "reviews_total", "reviews_today", "avg_depth_score",
+            "rubber_stamp_rate", "avg_residual_risk", "fatigue_state",
+            "health_score", "trend", "off_hours_pct", "top_domains"
+        ])
+        writer.writeheader()
+        for r in data["reviewer_cards"]:
+            row = dict(r)
+            row["top_domains"] = "|".join(r.get("top_domains", []))
+            writer.writerow({k: row.get(k, "") for k in writer.fieldnames})
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=vouch-team-health.csv"}
+        )
+    except Exception as e:
+        logger.error("export_team_health_csv error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Feature 1: Load Balancing ────────────────────────────────────────────────
+
+def _build_load_balancing_data() -> dict:
+    """Build reviewer workload and assignment suggestion data for /load-balancing."""
+    global _lb_cache
+    cached = _lb_cache.get("load_balancing")
+    if cached and (time.time() - cached["ts"]) < HEALTH_CACHE_TTL:
+        return cached["data"]
+
+    try:
+        all_prs = store.get_prs()
+        now = time.time()
+
+        reviewer_map: dict = {}
+        for pr in all_prs:
+            for reviewer in pr.get("reviewers", []):
+                if not reviewer or not isinstance(reviewer, str):
+                    continue
+                if reviewer not in reviewer_map:
+                    reviewer_map[reviewer] = {
+                        "login": reviewer, "reviews_total": 0, "reviews_today": 0,
+                        "reviews_this_week": 0, "open_assigned": 0,
+                        "avg_depth_score": [], "high_risk_reviews": 0,
+                        "rubber_stamps": 0, "last_review_at": None,
+                        "fatigue_state": "healthy", "current_load_score": 0.0,
+                    }
+                rm = reviewer_map[reviewer]
+                rm["reviews_total"] += 1
+                scored_at = pr.get("scored_at", 0)
+                if scored_at >= now - 86400:   rm["reviews_today"] += 1
+                if scored_at >= now - 604800:  rm["reviews_this_week"] += 1
+                if pr.get("state") == "open":  rm["open_assigned"] += 1
+                if pr.get("change_risk", 0) >= 0.65: rm["high_risk_reviews"] += 1
+                if pr.get("review_depth", 1.0) < 0.15: rm["rubber_stamps"] += 1
+                depth = pr.get("review_depth")
+                if depth is not None: rm["avg_depth_score"].append(depth)
+                if rm["last_review_at"] is None or scored_at > rm["last_review_at"]:
+                    rm["last_review_at"] = scored_at
+
+        for login, rm in reviewer_map.items():
+            depths = rm["avg_depth_score"]
+            rm["avg_depth_score"] = round(sum(depths) / len(depths), 3) if depths else 0.0
+            if rm["reviews_today"] >= 8:   rm["fatigue_state"] = "high"
+            elif rm["reviews_today"] >= 4: rm["fatigue_state"] = "moderate"
+            else:                          rm["fatigue_state"] = "healthy"
+            load = (
+                min(1.0, rm["reviews_today"] / 10) * 0.40 +
+                min(1.0, rm["open_assigned"] / 8)  * 0.35 +
+                min(1.0, rm["high_risk_reviews"] / 5) * 0.25
+            )
+            rm["current_load_score"] = round(load, 3)
+
+        reviewers_sorted = sorted(reviewer_map.values(), key=lambda r: r["current_load_score"], reverse=True)
+        for r in reviewers_sorted:
+            s = r["current_load_score"]
+            if s >= 0.70:   r["capacity_tier"] = "overloaded"
+            elif s >= 0.40: r["capacity_tier"] = "busy"
+            else:           r["capacity_tier"] = "available"
+
+        unassigned_high_risk = [
+            p for p in store.get_open_unreviewed_prs()
+            if p.get("change_risk", 0) >= 0.35
+        ]
+
+        def domain_match_score(reviewer_login: str, path_flags: list) -> float:
+            reviewer_prs = [p for p in all_prs if reviewer_login in p.get("reviewers", [])]
+            if not reviewer_prs or not path_flags: return 0.0
+            matches = sum(1 for p in reviewer_prs if any(f in p.get("path_flags", []) for f in path_flags))
+            return round(matches / len(reviewer_prs), 3)
+
+        available_reviewers = [r for r in reviewers_sorted if r["capacity_tier"] == "available"]
+        suggestions = []
+        for pr in unassigned_high_risk[:10]:
+            scored = []
+            for r in available_reviewers[:20]:
+                dm = domain_match_score(r["login"], pr.get("path_flags", []))
+                combined = dm * 0.60 + (1 - r["current_load_score"]) * 0.40
+                scored.append((r["login"], combined, dm, r["current_load_score"]))
+            scored.sort(key=lambda x: x[1], reverse=True)
+            best = scored[0] if scored else None
+            suggestions.append({
+                "pr_key": pr["pr_key"], "repo": pr["repo"], "number": pr["number"],
+                "title": pr["title"][:60], "change_risk": pr.get("change_risk", 0),
+                "path_flags": pr.get("path_flags", []),
+                "wait_hours": round((now - pr.get("scored_at", now)) / 3600, 1),
+                "suggested_reviewer": best[0] if best else None,
+                "suggestion_confidence": round(best[1], 3) if best else 0.0,
+                "domain_match": round(best[2], 3) if best else 0.0,
+                "html_url": pr.get("html_url", ""),
+            })
+
+        result = {
+            "reviewers": reviewers_sorted,
+            "overloaded_count": sum(1 for r in reviewers_sorted if r["capacity_tier"] == "overloaded"),
+            "available_count": sum(1 for r in reviewers_sorted if r["capacity_tier"] == "available"),
+            "unassigned_high_risk": unassigned_high_risk[:10],
+            "suggestions": suggestions,
+            "total_open_prs": sum(1 for p in all_prs if p.get("state") == "open"),
+        }
+        _lb_cache["load_balancing"] = {"data": result, "ts": time.time()}
+        return result
+    except Exception as e:
+        logger.error("_build_load_balancing_data error: %s", e)
+        return {"reviewers": [], "overloaded_count": 0, "available_count": 0,
+                "unassigned_high_risk": [], "suggestions": [], "total_open_prs": 0}
+
+
+@app.route("/load-balancing")
+def load_balancing():
+    try:
+        data = _build_load_balancing_data()
+    except Exception as e:
+        logger.error("load_balancing route error: %s", e)
+        data = {"reviewers": [], "overloaded_count": 0, "available_count": 0,
+                "unassigned_high_risk": [], "suggestions": [], "total_open_prs": 0}
+    return render_template("load_balancing.html", **data)
+
+
+@app.route("/api/load-balancing")
+def api_load_balancing():
+    return jsonify(_build_load_balancing_data())
+
+
+# ── Feature 5: Pair Intelligence ─────────────────────────────────────────────
+
+def _build_pair_intelligence_data() -> dict:
+    """Build author-reviewer pair quality data for /pair-intelligence."""
+    global _pair_cache
+    cached = _pair_cache.get("pair_intel")
+    if cached and (time.time() - cached["ts"]) < HEALTH_CACHE_TTL:
+        return cached["data"]
+
+    try:
+        from collections import defaultdict, Counter
+        all_prs = store.get_prs()
+
+        pair_map: dict = defaultdict(lambda: {
+            "reviews": 0, "requeued": 0, "depth_scores": [],
+            "residual_risks": [], "path_flags_all": [], "high_risk_prs": 0,
+        })
+
+        for pr in all_prs:
+            author = pr.get("author")
+            if not author: continue
+            for reviewer in pr.get("reviewers", []):
+                if not reviewer or reviewer == author: continue
+                key = (author, reviewer)
+                pm = pair_map[key]
+                pm["reviews"] += 1
+                if pr.get("re_queued"): pm["requeued"] += 1
+                depth = pr.get("review_depth")
+                if depth is not None: pm["depth_scores"].append(depth)
+                rr = pr.get("residual_risk")
+                if rr is not None: pm["residual_risks"].append(rr)
+                pm["path_flags_all"].extend(pr.get("path_flags", []))
+                if pr.get("change_risk", 0) >= 0.65: pm["high_risk_prs"] += 1
+
+        pairs = []
+        for (author, reviewer), pm in pair_map.items():
+            if pm["reviews"] < 2: continue
+            avg_depth = sum(pm["depth_scores"]) / len(pm["depth_scores"]) if pm["depth_scores"] else 0.0
+            avg_residual = sum(pm["residual_risks"]) / len(pm["residual_risks"]) if pm["residual_risks"] else 0.0
+            requeue_rate = pm["requeued"] / pm["reviews"]
+            quality_score = (
+                (1 - avg_residual) * 0.40 +
+                avg_depth          * 0.40 +
+                (1 - requeue_rate) * 0.20
+            )
+            domain_counter = Counter(pm["path_flags_all"])
+            top_domains = [d for d, _ in domain_counter.most_common(3)]
+            if quality_score >= 0.70 and pm["reviews"] >= 3: pair_class = "golden"
+            elif requeue_rate >= 0.40 or avg_depth < 0.20:  pair_class = "risky"
+            elif avg_residual >= 0.55:                       pair_class = "watchlist"
+            else:                                            pair_class = "neutral"
+            pairs.append({
+                "author": author, "reviewer": reviewer,
+                "reviews": pm["reviews"], "requeued": pm["requeued"],
+                "requeue_rate": round(requeue_rate, 3),
+                "avg_depth_score": round(avg_depth, 3),
+                "avg_residual_risk": round(avg_residual, 3),
+                "high_risk_prs": pm["high_risk_prs"],
+                "quality_score": round(quality_score, 3),
+                "top_domains": top_domains, "pair_class": pair_class,
+            })
+
+        pairs.sort(key=lambda p: p["reviews"], reverse=True)
+        golden    = [p for p in pairs if p["pair_class"] == "golden"]
+        risky     = [p for p in pairs if p["pair_class"] == "risky"]
+        watchlist = [p for p in pairs if p["pair_class"] == "watchlist"]
+        neutral   = [p for p in pairs if p["pair_class"] == "neutral"]
+
+        result = {
+            "pairs": pairs, "golden": golden[:10], "risky": risky[:10],
+            "watchlist": watchlist[:10], "neutral": neutral[:20],
+            "total_pairs": len(pairs), "golden_count": len(golden),
+            "risky_count": len(risky), "watchlist_count": len(watchlist),
+        }
+        _pair_cache["pair_intel"] = {"data": result, "ts": time.time()}
+        return result
+    except Exception as e:
+        logger.error("_build_pair_intelligence_data error: %s", e)
+        return {"pairs": [], "golden": [], "risky": [], "watchlist": [], "neutral": [],
+                "total_pairs": 0, "golden_count": 0, "risky_count": 0, "watchlist_count": 0}
+
+
+@app.route("/pair-intelligence")
+def pair_intelligence():
+    try:
+        data = _build_pair_intelligence_data()
+    except Exception as e:
+        logger.error("pair_intelligence route error: %s", e)
+        data = {"pairs": [], "golden": [], "risky": [], "watchlist": [], "neutral": [],
+                "total_pairs": 0, "golden_count": 0, "risky_count": 0, "watchlist_count": 0}
+    return render_template("pair_intelligence.html", **data)
+
+
+@app.route("/api/pair-intelligence")
+def api_pair_intelligence():
+    return jsonify(_build_pair_intelligence_data())
+
+
+# ── Feature 6: SLA Predictions ────────────────────────────────────────────────
+
+DEFAULT_SLA_HOURS = 48
+PREDICTION_HORIZON_HOURS = 8
+
+
+def _build_sla_predictions() -> dict:
+    """Build SLA breach prediction data for /sla-predictions."""
+    try:
+        all_prs = store.get_prs()
+        open_prs = [p for p in all_prs if p.get("state") == "open"]
+        now = time.time()
+        predictions = []
+
+        for pr in open_prs:
+            created_ts = None
+            created_at = pr.get("created_at")
+            if created_at:
+                try:
+                    created_ts = datetime.fromisoformat(
+                        created_at.replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    pass
+            if not created_ts:
+                continue
+
+            age_hours = (now - created_ts) / 3600
+            sla_remaining_hours = DEFAULT_SLA_HOURS - age_hours
+            already_breached = sla_remaining_hours < 0
+
+            reviewers = pr.get("reviewers", [])
+            if reviewers:
+                reviewer_pr_counts: dict = {}
+                for p2 in all_prs:
+                    for r in p2.get("reviewers", []):
+                        if p2.get("scored_at", 0) >= now - 86400:
+                            reviewer_pr_counts[r] = reviewer_pr_counts.get(r, 0) + 1
+                avg_load = sum(
+                    min(1.0, reviewer_pr_counts.get(r, 0) / 10) for r in reviewers
+                ) / len(reviewers)
+            else:
+                avg_load = 1.0
+
+            age_fraction = min(1.0, age_hours / DEFAULT_SLA_HOURS)
+            breach_probability = min(0.99, age_fraction * 0.60 + avg_load * 0.40)
+            expected_review_delay = avg_load * 12
+            predicted_breach_in = max(0.0, sla_remaining_hours - expected_review_delay)
+
+            at_risk = (
+                already_breached or
+                predicted_breach_in <= PREDICTION_HORIZON_HOURS or
+                breach_probability >= 0.60
+            )
+            if not at_risk:
+                continue
+
+            change_risk = pr.get("change_risk", 0.0)
+            urgency = min(1.0, breach_probability * 0.60 + change_risk * 0.40)
+
+            if already_breached:           status = "breached"
+            elif predicted_breach_in <= 2: status = "imminent"
+            elif predicted_breach_in <= PREDICTION_HORIZON_HOURS: status = "at_risk"
+            else:                          status = "warning"
+
+            predictions.append({
+                "pr_key": pr["pr_key"], "repo": pr["repo"], "number": pr["number"],
+                "title": pr["title"][:60], "author": pr.get("author"),
+                "reviewers": reviewers, "change_risk": round(change_risk, 3),
+                "age_hours": round(age_hours, 1),
+                "sla_remaining_hours": round(sla_remaining_hours, 1),
+                "predicted_breach_in": round(predicted_breach_in, 1),
+                "breach_probability": round(breach_probability, 3),
+                "reviewer_avg_load": round(avg_load, 3),
+                "urgency": round(urgency, 3), "status": status,
+                "path_flags": pr.get("path_flags", []),
+                "html_url": pr.get("html_url", ""),
+            })
+
+        predictions.sort(key=lambda p: p["urgency"], reverse=True)
+        return {
+            "predictions": predictions,
+            "breached_count": sum(1 for p in predictions if p["status"] == "breached"),
+            "imminent_count": sum(1 for p in predictions if p["status"] == "imminent"),
+            "at_risk_count":  sum(1 for p in predictions if p["status"] == "at_risk"),
+            "warning_count":  sum(1 for p in predictions if p["status"] == "warning"),
+            "sla_hours": DEFAULT_SLA_HOURS,
+            "horizon_hours": PREDICTION_HORIZON_HOURS,
+        }
+    except Exception as e:
+        logger.error("_build_sla_predictions error: %s", e)
+        return {"predictions": [], "breached_count": 0, "imminent_count": 0,
+                "at_risk_count": 0, "warning_count": 0,
+                "sla_hours": DEFAULT_SLA_HOURS, "horizon_hours": PREDICTION_HORIZON_HOURS}
+
+
+@app.route("/sla-predictions")
+def sla_predictions():
+    try:
+        data = _build_sla_predictions()
+    except Exception as e:
+        logger.error("sla_predictions route error: %s", e)
+        data = {"predictions": [], "breached_count": 0, "imminent_count": 0,
+                "at_risk_count": 0, "warning_count": 0,
+                "sla_hours": DEFAULT_SLA_HOURS, "horizon_hours": PREDICTION_HORIZON_HOURS}
+    return render_template("sla_predictions.html", **data)
+
+
+@app.route("/api/sla-predictions")
+def api_sla_predictions():
+    return jsonify(_build_sla_predictions())
+
+
 
 
 @app.route("/api/version")
@@ -2913,10 +3482,17 @@ def api_explain_groq():
         })
     else:
         err_str = result.get("error", "Failed to generate explanation from Groq.")
+        requires_key = bool(
+            result.get("requires_key")
+            or "not configured" in err_str.lower()
+            or "invalid" in err_str.lower()
+            or "enter a" in err_str.lower()
+            or "failed" in err_str.lower()
+        )
         return jsonify({
             "success": False,
             "error": err_str,
-            "requires_key": "not configured" in err_str.lower() or "invalid" in err_str.lower(),
+            "requires_key": requires_key,
         }), 400
 
 
@@ -3409,6 +3985,113 @@ def _build_reviewer_profile(username: str, gh_token: str | None = None) -> dict:
     intervention_text = emoji_re.sub("", intervention_text)
     intervention_text = re.sub(r" +", " ", intervention_text).strip()
 
+    # ── Workload & Capacity Calculation ──────────────────────────────────────
+    now_ts = time.time()
+    reviews_today = consecutive_today
+    one_week_ago = now_ts - 7 * 86400
+    reviews_this_week = sum(1 for p in vouch_prs if _extract_ts(p) >= one_week_ago)
+    open_assigned_count = len(open_assigned)
+    high_risk_open_count = sum(
+        1 for p in open_assigned
+        if float(p.get("change_risk", 0.0) or 0.0) >= 0.65
+    )
+
+    load_raw = (
+        min(1.0, reviews_today / 10) * 0.40 +
+        min(1.0, open_assigned_count / 8) * 0.35 +
+        min(1.0, high_risk_open_count / 5) * 0.25
+    )
+    load_score = round(load_raw, 3)
+    load_pct = min(100, int(load_score * 100))
+
+    if load_score >= 0.70:
+        capacity_tier = "overloaded"
+        capacity_label = "Overloaded"
+        capacity_badge_class = "gh-label-high"
+    elif load_score >= 0.40:
+        capacity_tier = "busy"
+        capacity_label = "Busy"
+        capacity_badge_class = "gh-label-medium"
+    else:
+        capacity_tier = "available"
+        capacity_label = "Available"
+        capacity_badge_class = "gh-label-low"
+
+    workload = {
+        "capacity_tier": capacity_tier,
+        "capacity_label": capacity_label,
+        "capacity_badge_class": capacity_badge_class,
+        "load_score": load_score,
+        "load_pct": load_pct,
+        "reviews_today": reviews_today,
+        "reviews_this_week": reviews_this_week,
+        "open_assigned_count": open_assigned_count,
+        "high_risk_open_count": high_risk_open_count,
+    }
+
+    # ── Reviewer Pairing Intelligence ────────────────────────────────────────
+    co_reviewer_counts = defaultdict(lambda: {"reviews": 0, "depths": [], "requeued": 0})
+    author_pair_counts = defaultdict(lambda: {"reviews": 0, "depths": [], "requeued": 0})
+
+    u_clean_lower = clean_username.lower()
+
+    for p in vouch_prs:
+        p_depth = _extract_depth(p)
+        p_requeued = 1 if p.get("re_queued") else 0
+
+        # Check author
+        auth = str(p.get("author") or "").strip()
+        if auth and auth.lower() != u_clean_lower and auth.lower() not in ("unknown", "collaborator", "none"):
+            author_pair_counts[auth]["reviews"] += 1
+            author_pair_counts[auth]["depths"].append(p_depth)
+            author_pair_counts[auth]["requeued"] += p_requeued
+
+        # Check co-reviewers
+        revs = p.get("reviewers") or []
+        if isinstance(revs, str):
+            revs = [revs]
+        single_r = p.get("reviewer")
+        if single_r and single_r not in revs:
+            revs = list(revs) + [single_r]
+
+        for r in revs:
+            r_str = str(r or "").strip()
+            if r_str and r_str.lower() != u_clean_lower and r_str.lower() not in ("unknown", "collaborator", "none", "none requested"):
+                co_reviewer_counts[r_str]["reviews"] += 1
+                co_reviewer_counts[r_str]["depths"].append(p_depth)
+                co_reviewer_counts[r_str]["requeued"] += p_requeued
+
+    pairing_list = []
+    for co_rev, stats in co_reviewer_counts.items():
+        cnt = stats["reviews"]
+        avg_d = sum(stats["depths"]) / len(stats["depths"]) if stats["depths"] else 0.0
+        rq_rate = stats["requeued"] / cnt if cnt else 0.0
+        pairing_list.append({
+            "login": co_rev,
+            "type": "Co-Reviewer",
+            "reviews_count": cnt,
+            "avg_depth": round(avg_d, 2),
+            "requeue_rate_pct": int(rq_rate * 100),
+            "is_co_reviewer": True,
+        })
+
+    for auth, stats in author_pair_counts.items():
+        cnt = stats["reviews"]
+        if cnt >= 2 or not pairing_list:
+            avg_d = sum(stats["depths"]) / len(stats["depths"]) if stats["depths"] else 0.0
+            rq_rate = stats["requeued"] / cnt if cnt else 0.0
+            pairing_list.append({
+                "login": auth,
+                "type": "Author Pair",
+                "reviews_count": cnt,
+                "avg_depth": round(avg_d, 2),
+                "requeue_rate_pct": int(rq_rate * 100),
+                "is_co_reviewer": False,
+            })
+
+    pairing_list.sort(key=lambda x: (x["reviews_count"], 1 if x["is_co_reviewer"] else 0), reverse=True)
+    frequent_pairs = pairing_list[:3]
+
     recent_reviewers = store.get_all_reviewer_usernames(limit=10)
 
     return {
@@ -3428,6 +4111,8 @@ def _build_reviewer_profile(username: str, gh_token: str | None = None) -> dict:
         "intervention": intervention_text,
         "intervention_bot": intervention_bot,
         "recent_reviewers": recent_reviewers,
+        "workload": workload,
+        "frequent_pairs": frequent_pairs,
     }
 
 

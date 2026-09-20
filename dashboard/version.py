@@ -11,8 +11,9 @@ import os
 import subprocess
 from functools import lru_cache
 
-__version__ = "2.2"
-VERSION_NAME = "Bharat Builds Edition"
+__version__ = "2.3"
+VERSION_NAME = "Intelligence Edition"
+
 
 
 @lru_cache(maxsize=1)

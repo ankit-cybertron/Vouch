@@ -210,29 +210,76 @@ Reviewer Not Found
         </div>
       </div>
 
-      <!-- Domain Expertise Card (shifted to empty space at side) -->
-      <div class="domain-card">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-          <h3 class="section-title" style="font-size: 15px; font-weight: 600; margin: 0; color: var(--color-fg-default);">Domain Expertise</h3>
-          <span style="font-size: 11px; color: var(--color-fg-muted);">Sensitive Paths</span>
+      <!-- Workload & Pairing Card (Replaced Domain Expertise) -->
+      <div class="domain-card" style="display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <h3 class="section-title" style="font-size:15px; font-weight:600; margin:0; color:var(--color-fg-default);">Workload &amp; Capacity</h3>
+            <a href="/load-balancing" class="gh-btn gh-btn-sm" style="font-size:11px; padding:1px 6px;">Load Balancing</a>
+          </div>
+          {% if workload %}
+          <span class="gh-label {{ workload.capacity_badge_class }}">{{ workload.capacity_label }}</span>
+          {% else %}
+          <span class="gh-label gh-label-low">Available</span>
+          {% endif %}
         </div>
-        <div class="domain-bars">
-          {% set max_count = domain_expertise[0][1] if domain_expertise else 1 %}
-          {% for domain, count in domain_expertise %}
-          {% set bar_pct = ((count * 100) // max_count) if max_count else 0 %}
-          <div class="domain-bar-row">
-            <span class="domain-label domain-{{ domain }}">{{ domain }}</span>
-            <div class="domain-bar-track">
-              <div class="domain-bar-fill domain-fill-{{ domain }}"
-                   style="--domain-pct: {{ bar_pct }}%; width: var(--domain-pct, 0%);">
+
+        {% if workload %}
+        <!-- Capacity Load Meter -->
+        <div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+            <span style="color:var(--color-fg-muted);">Current Capacity Load</span>
+            <span class="{% if workload.capacity_tier == 'overloaded' %}color-danger{% elif workload.capacity_tier == 'busy' %}color-attention{% else %}color-success{% endif %}" style="font-weight:600;">{{ workload.load_pct }}%</span>
+          </div>
+          <div style="height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;">
+            <div data-fill-width="{{ workload.load_pct }}"
+                 class="{% if workload.capacity_tier == 'overloaded' %}bg-danger{% elif workload.capacity_tier == 'busy' %}bg-attention{% else %}bg-success{% endif %}"
+                 style="height:100%; border-radius:3px;"></div>
+          </div>
+        </div>
+
+        <!-- Workload Stats (3 Mini Stats) -->
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding:8px 0; border-top:1px solid var(--color-border-muted); border-bottom:1px solid var(--color-border-muted); text-align:center;">
+          <div>
+            <div style="font-size:16px; font-weight:700; color:var(--color-fg-default);">{{ workload.open_assigned_count }}</div>
+            <div style="font-size:11px; color:var(--color-fg-muted); margin-top:2px;">Open Assigned</div>
+          </div>
+          <div>
+            <div style="font-size:16px; font-weight:700; color:var(--color-fg-default);">{{ workload.reviews_this_week }}</div>
+            <div style="font-size:11px; color:var(--color-fg-muted); margin-top:2px;">This Week</div>
+          </div>
+          <div>
+            <div class="{% if workload.high_risk_open_count > 0 %}color-danger{% endif %}" style="font-size:16px; font-weight:700; color:var(--color-fg-default);">{{ workload.high_risk_open_count }}</div>
+            <div style="font-size:11px; color:var(--color-fg-muted); margin-top:2px;">High-Risk Pending</div>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Consistent Review Pairs Section -->
+        <div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <span style="font-size:13px; font-weight:600; color:var(--color-fg-default);">Consistent Review Pairs</span>
+            <a href="/pair-intelligence" style="font-size:11px; color:var(--color-accent-fg); text-decoration:none;">Pair Intel &rarr;</a>
+          </div>
+
+          {% if frequent_pairs %}
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            {% for p in frequent_pairs %}
+            <div style="display:flex; align-items:center; justify-content:space-between; background:var(--color-canvas-subtle); padding:6px 10px; border-radius:6px; font-size:12px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <img src="https://github.com/{{ p.login }}.png" onerror="this.src='https://github.com/github.png'" alt="@{{ p.login }}" style="width:20px; height:20px; border-radius:50%; object-fit:cover; flex-shrink:0;" />
+                <a href="/reviewer/{{ p.login }}" style="color:var(--color-accent-fg); font-weight:600; text-decoration:none;">@{{ p.login }}</a>
+                <span class="gh-label" style="font-size:10px; padding:1px 6px;">{{ p.type }}</span>
+              </div>
+              <div style="color:var(--color-fg-muted); font-size:11px; text-align:right;">
+                <strong>{{ p.reviews_count }}</strong> review{{ 's' if p.reviews_count != 1 else '' }} · Depth {{ p.avg_depth }}
               </div>
             </div>
-            <span class="domain-count">{{ count }} PR{{ 's' if count != 1 else '' }}</span>
+            {% endfor %}
           </div>
-          {% endfor %}
-          {% if not domain_expertise %}
-          <p class="text-muted" style="color: var(--color-fg-muted); font-size: 13px; margin: 0; padding: 12px 0;">
-            No sensitive path domain data recorded yet.
+          {% else %}
+          <p style="color:var(--color-fg-muted); font-size:12px; margin:0; padding:4px 0;">
+            No recurring co-reviewers or pair patterns detected yet.
           </p>
           {% endif %}
         </div>
