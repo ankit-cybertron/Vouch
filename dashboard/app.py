@@ -3978,6 +3978,113 @@ def _build_reviewer_profile(username: str, gh_token: str | None = None) -> dict:
     intervention_text = emoji_re.sub("", intervention_text)
     intervention_text = re.sub(r" +", " ", intervention_text).strip()
 
+    # ── Workload & Capacity Calculation ──────────────────────────────────────
+    now_ts = time.time()
+    reviews_today = consecutive_today
+    one_week_ago = now_ts - 7 * 86400
+    reviews_this_week = sum(1 for p in vouch_prs if _extract_ts(p) >= one_week_ago)
+    open_assigned_count = len(open_assigned)
+    high_risk_open_count = sum(
+        1 for p in open_assigned
+        if float(p.get("change_risk", 0.0) or 0.0) >= 0.65
+    )
+
+    load_raw = (
+        min(1.0, reviews_today / 10) * 0.40 +
+        min(1.0, open_assigned_count / 8) * 0.35 +
+        min(1.0, high_risk_open_count / 5) * 0.25
+    )
+    load_score = round(load_raw, 3)
+    load_pct = min(100, int(load_score * 100))
+
+    if load_score >= 0.70:
+        capacity_tier = "overloaded"
+        capacity_label = "Overloaded"
+        capacity_badge_class = "gh-label-high"
+    elif load_score >= 0.40:
+        capacity_tier = "busy"
+        capacity_label = "Busy"
+        capacity_badge_class = "gh-label-medium"
+    else:
+        capacity_tier = "available"
+        capacity_label = "Available"
+        capacity_badge_class = "gh-label-low"
+
+    workload = {
+        "capacity_tier": capacity_tier,
+        "capacity_label": capacity_label,
+        "capacity_badge_class": capacity_badge_class,
+        "load_score": load_score,
+        "load_pct": load_pct,
+        "reviews_today": reviews_today,
+        "reviews_this_week": reviews_this_week,
+        "open_assigned_count": open_assigned_count,
+        "high_risk_open_count": high_risk_open_count,
+    }
+
+    # ── Reviewer Pairing Intelligence ────────────────────────────────────────
+    co_reviewer_counts = defaultdict(lambda: {"reviews": 0, "depths": [], "requeued": 0})
+    author_pair_counts = defaultdict(lambda: {"reviews": 0, "depths": [], "requeued": 0})
+
+    u_clean_lower = clean_username.lower()
+
+    for p in vouch_prs:
+        p_depth = _extract_depth(p)
+        p_requeued = 1 if p.get("re_queued") else 0
+
+        # Check author
+        auth = str(p.get("author") or "").strip()
+        if auth and auth.lower() != u_clean_lower and auth.lower() not in ("unknown", "collaborator", "none"):
+            author_pair_counts[auth]["reviews"] += 1
+            author_pair_counts[auth]["depths"].append(p_depth)
+            author_pair_counts[auth]["requeued"] += p_requeued
+
+        # Check co-reviewers
+        revs = p.get("reviewers") or []
+        if isinstance(revs, str):
+            revs = [revs]
+        single_r = p.get("reviewer")
+        if single_r and single_r not in revs:
+            revs = list(revs) + [single_r]
+
+        for r in revs:
+            r_str = str(r or "").strip()
+            if r_str and r_str.lower() != u_clean_lower and r_str.lower() not in ("unknown", "collaborator", "none", "none requested"):
+                co_reviewer_counts[r_str]["reviews"] += 1
+                co_reviewer_counts[r_str]["depths"].append(p_depth)
+                co_reviewer_counts[r_str]["requeued"] += p_requeued
+
+    pairing_list = []
+    for co_rev, stats in co_reviewer_counts.items():
+        cnt = stats["reviews"]
+        avg_d = sum(stats["depths"]) / len(stats["depths"]) if stats["depths"] else 0.0
+        rq_rate = stats["requeued"] / cnt if cnt else 0.0
+        pairing_list.append({
+            "login": co_rev,
+            "type": "Co-Reviewer",
+            "reviews_count": cnt,
+            "avg_depth": round(avg_d, 2),
+            "requeue_rate_pct": int(rq_rate * 100),
+            "is_co_reviewer": True,
+        })
+
+    for auth, stats in author_pair_counts.items():
+        cnt = stats["reviews"]
+        if cnt >= 2 or not pairing_list:
+            avg_d = sum(stats["depths"]) / len(stats["depths"]) if stats["depths"] else 0.0
+            rq_rate = stats["requeued"] / cnt if cnt else 0.0
+            pairing_list.append({
+                "login": auth,
+                "type": "Author Pair",
+                "reviews_count": cnt,
+                "avg_depth": round(avg_d, 2),
+                "requeue_rate_pct": int(rq_rate * 100),
+                "is_co_reviewer": False,
+            })
+
+    pairing_list.sort(key=lambda x: (x["reviews_count"], 1 if x["is_co_reviewer"] else 0), reverse=True)
+    frequent_pairs = pairing_list[:3]
+
     recent_reviewers = store.get_all_reviewer_usernames(limit=10)
 
     return {
@@ -3997,6 +4104,8 @@ def _build_reviewer_profile(username: str, gh_token: str | None = None) -> dict:
         "intervention": intervention_text,
         "intervention_bot": intervention_bot,
         "recent_reviewers": recent_reviewers,
+        "workload": workload,
+        "frequent_pairs": frequent_pairs,
     }
 
 
