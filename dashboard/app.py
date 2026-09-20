@@ -1425,11 +1425,19 @@ def repos_page():
     repos_list.sort(key=lambda r: 0 if r.get("full_name", "").lower() == vouch_key else 1)
 
 
+    session_repos = session.get("session_repos") or []
+    active_repo = session.get("active_repo")
+    if active_repo and active_repo not in session_repos:
+        session_repos.append(active_repo)
+        session["session_repos"] = session_repos
+
     return render_template(
         "repos.html",
         repos=repos_list,
         search=search,
         initial_repo_name=DEFAULT_INITIAL_REPO,
+        session_repos=session_repos,
+        has_session_repos=len(session_repos) > 0,
     )
 
 
@@ -1671,6 +1679,10 @@ def auth_logout():
     session.pop("user_avatar", None)
     session.pop("auth_type", None)
     session.pop("rate_limit", None)
+    session.pop("session_repos", None)
+    session.pop("active_repo", None)
+    session.pop("active_reviewer", None)
+    session.clear()
     return redirect(url_for("landing_page"))
 
 
@@ -1787,6 +1799,12 @@ def api_auth_status():
 def repo_view(owner: str, repo_name: str):
     """Repository-scoped PR board showing all its active (open) and closed (merged) PRs."""
     full_name = f"{owner}/{repo_name}"
+    session["active_repo"] = full_name
+    s_repos = session.get("session_repos") or []
+    if full_name not in s_repos:
+        s_repos.append(full_name)
+        session["session_repos"] = s_repos
+
     risk_filter = request.args.get("risk", "all")
     state_filter = request.args.get("state", "all")
     search = request.args.get("q", "").strip()
@@ -1950,8 +1968,16 @@ def repo_view(owner: str, repo_name: str):
 def board():
     """General PR board — clean hero search page when visited directly, or repository PR board."""
     repo_arg = request.args.get("repo", "").strip()
+    force_search = request.args.get("view") == "search"
     if repo_arg:
         parsed = _parse_repo_input(repo_arg)
+        if parsed:
+            return repo_view(parsed[0], parsed[1])
+
+    # If the user already loaded an active repo in this session, keep PR board visible on tab click
+    active_repo = session.get("active_repo")
+    if not force_search and active_repo:
+        parsed = _parse_repo_input(active_repo)
         if parsed:
             return repo_view(parsed[0], parsed[1])
 
@@ -1981,10 +2007,13 @@ def board():
 
 @app.route("/api/clear-repos", methods=["POST"])
 def clear_repos_api():
-    """Clear all fetched repositories and pull requests from memory."""
+    """Clear all fetched repositories and pull requests from memory and session."""
     FETCHED_REPOS.clear()
     REPO_PRS_CACHE.clear()
     LIVE_PRS_CACHE.clear()
+    session.pop("session_repos", None)
+    session.pop("active_repo", None)
+    session.pop("active_reviewer", None)
     return jsonify({"success": True, "message": "All fetched repository data cleared."})
 
 
@@ -3375,6 +3404,12 @@ def api_fetch_repo():
         return jsonify({"error": f"Could not parse '{raw}'. Use owner/repo or a GitHub URL.", "prs": []}), 400
 
     owner, repo_name = parsed
+    full_name = f"{owner}/{repo_name}"
+    session["active_repo"] = full_name
+    s_repos = session.get("session_repos") or []
+    if full_name not in s_repos:
+        s_repos.append(full_name)
+        session["session_repos"] = s_repos
     result = _fetch_and_score_repo(owner, repo_name, limit=50)
     result["redirect_url"] = f"/repo/{owner}/{repo_name}"
     return jsonify(result)
@@ -4118,6 +4153,11 @@ def _build_reviewer_profile(username: str, gh_token: str | None = None) -> dict:
 
 @app.route("/reviewer")
 def reviewer_search():
+    force_search = request.args.get("view") == "search"
+    active_reviewer = session.get("active_reviewer")
+    if not force_search and active_reviewer:
+        return reviewer_profile(active_reviewer)
+
     recent = store.get_all_reviewer_usernames(limit=10)
     total_reviewers = len(store.get_all_reviewer_usernames(limit=None))
     total_repos = len(store.get_repos())
@@ -4133,6 +4173,7 @@ def reviewer_search():
 
 @app.route("/reviewer/<username>")
 def reviewer_profile(username):
+    session["active_reviewer"] = username
     if request.args.get("refresh"):
         _reviewer_cache.pop(username, None)
 

@@ -108,10 +108,13 @@
       closeDropdown();
       const owner = r.owner || (r.full_name ? r.full_name.split('/')[0] : '');
       const repo = r.repo || (r.full_name ? r.full_name.split('/')[1] : '');
+      const fullName = r.full_name || `${owner}/${repo}`;
+      sessionStorage.setItem('vouch_repos_view', 'visible');
+      sessionStorage.setItem('vouch_active_repo', fullName);
       const url = targetUrlTemplate
         .replace('{owner}', encodeURIComponent(owner))
         .replace('{repo}', encodeURIComponent(repo))
-        .replace('{full_name}', encodeURIComponent(r.full_name || `${owner}/${repo}`));
+        .replace('{full_name}', encodeURIComponent(fullName));
       window.location.href = url;
     }
 

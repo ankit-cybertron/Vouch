@@ -476,6 +476,10 @@
       }
 
       // Successful fetch -> redirect directly to the repository PR view
+      sessionStorage.setItem('vouch_repos_view', 'visible');
+      if (val) {
+        sessionStorage.setItem('vouch_active_repo', val);
+      }
       if (data.redirect_url) {
         window.location.href = data.redirect_url;
       } else {
@@ -546,16 +550,23 @@
     }
 
     // Default view is 'cleared' on fresh login / initial visit (no cards displayed)
-    let currentView = sessionStorage.getItem('vouch_repos_view') || 'cleared';
-    if (urlParams.get('view') === 'popular' || urlParams.get('view') === 'all') {
+    const hasSessionRepos = grid && grid.getAttribute('data-has-session-repos') === 'true';
+    const savedView = sessionStorage.getItem('vouch_repos_view');
+    let currentView = 'cleared';
+
+    if (savedView === 'cleared') {
+      currentView = 'cleared';
+    } else if (savedView === 'popular' || urlParams.get('view') === 'popular' || urlParams.get('view') === 'all') {
       currentView = 'popular';
       sessionStorage.setItem('vouch_repos_view', 'popular');
+    } else if (savedView === 'visible' || hasSessionRepos) {
+      currentView = 'visible';
+      sessionStorage.setItem('vouch_repos_view', 'visible');
     } else if (urlParams.get('view') === 'initial') {
       currentView = 'initial';
       sessionStorage.setItem('vouch_repos_view', 'initial');
-    } else if (urlParams.get('view') === 'cleared') {
+    } else {
       currentView = 'cleared';
-      sessionStorage.setItem('vouch_repos_view', 'cleared');
     }
 
     function applyView(view) {
@@ -589,10 +600,11 @@
         });
         if (badge) badge.textContent = visibleCount;
       } else {
-        // 'initial': show only ankit-cybertron/Vouch (data-is-initial="true")
+        // Show session repos (or initial Vouch if selected/session)
         cards.forEach(c => {
+          const isSession = c.getAttribute('data-is-session') === 'true';
           const isInitial = c.getAttribute('data-is-initial') === 'true';
-          if (isInitial) {
+          if (isSession || (isInitial && (hasSessionRepos || view === 'initial'))) {
             c.style.display = 'flex';
             visibleCount++;
           } else {
@@ -600,7 +612,7 @@
           }
         });
 
-        // Fallback: If no card marked initial, show the first card
+        // Fallback: If no card matched session, show initial or first card
         if (visibleCount === 0 && cards.length > 0) {
           cards[0].style.display = 'flex';
           visibleCount = 1;
@@ -613,9 +625,15 @@
     // Apply view on load
     applyView(currentView);
 
-    // Clear All button: removes cards from screen and hides top section
+    // Clear All button: removes cards from screen, clears backend & session storage
     if (clearAllBtn) {
-      clearAllBtn.addEventListener('click', function () {
+      clearAllBtn.addEventListener('click', async function () {
+        sessionStorage.setItem('vouch_repos_view', 'cleared');
+        sessionStorage.removeItem('vouch_active_repo');
+        sessionStorage.removeItem('vouch_active_reviewer');
+        try {
+          await fetch('/api/clear-repos', { method: 'POST' });
+        } catch (e) {}
         applyView('cleared');
       });
     }

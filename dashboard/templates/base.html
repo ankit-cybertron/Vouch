@@ -57,7 +57,7 @@
             Pull Requests
           </a>
 
-          <a href="/team-health" class="gh-nav-link {% if request.endpoint in ['team_health', 'validation'] %}active{% endif %}" id="nav-team-health" {% if request.endpoint in ['team_health', 'validation'] %}aria-current="page"{% endif %}>
+          <a href="/team-health" class="gh-nav-link {% if request.endpoint in ['team_health', 'validation', 'load_balancing', 'pair_intelligence', 'sla_predictions'] %}active{% endif %}" id="nav-team-health" {% if request.endpoint in ['team_health', 'validation', 'load_balancing', 'pair_intelligence', 'sla_predictions'] %}aria-current="page"{% endif %}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M1.5 1.75V13.5h13.75a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 1.5 0Zm14.28 2.53-5.25 5.25a.75.75 0 0 1-1.06 0L7 7.06 2.53 11.53a.75.75 0 0 1-1.06-1.06l5-5a.75.75 0 0 1 1.06 0l2.47 2.47 4.72-4.72a.75.75 0 0 1 1.06 1.06Z"></path>
             </svg>
@@ -70,18 +70,6 @@
               <path d="M10.561 8.073a6.005 6.005 0 0 1 3.432 5.142.75.75 0 1 1-1.498.07 4.5 4.5 0 0 0-8.99 0 .75.75 0 0 1-1.498-.07 6.004 6.004 0 0 1 3.431-5.142 3.999 3.999 0 1 1 5.123 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path>
             </svg>
             Reviewers
-          </a>
-
-          <a href="/load-balancing" class="gh-nav-link {% if request.endpoint == 'load_balancing' %}active{% endif %}" id="nav-load-balancing" {% if request.endpoint == 'load_balancing' %}aria-current="page"{% endif %}>
-            Load Balancing
-          </a>
-
-          <a href="/pair-intelligence" class="gh-nav-link {% if request.endpoint == 'pair_intelligence' %}active{% endif %}" id="nav-pair-intel" {% if request.endpoint == 'pair_intelligence' %}aria-current="page"{% endif %}>
-            Pair Intel
-          </a>
-
-          <a href="/sla-predictions" class="gh-nav-link {% if request.endpoint == 'sla_predictions' %}active{% endif %}" id="nav-sla" {% if request.endpoint == 'sla_predictions' %}aria-current="page"{% endif %}>
-            SLA Predictions
           </a>
         </div>
       </div>
@@ -100,7 +88,7 @@
           {% else %}
           <span class="gh-label gh-label-confidence" id="nav-quota-pill">{{ auth.auth_type | upper }}</span>
           {% endif %}
-          <a href="/auth/logout" class="gh-btn gh-btn-sm" style="color:var(--color-danger-fg); padding:2px 8px;" title="Disconnect token / sign out">Sign out</a>
+          <a href="/auth/logout" onclick="sessionStorage.clear();" class="gh-btn gh-btn-sm" style="color:var(--color-danger-fg); padding:2px 8px;" title="Disconnect token / sign out">Sign out</a>
         </div>
         {% else %}
         <div class="gh-auth-demo" style="display:flex; align-items:center; gap:8px;">

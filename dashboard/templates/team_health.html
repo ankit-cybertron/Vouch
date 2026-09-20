@@ -26,7 +26,7 @@
 </style>
 
 <div style="max-width:1280px; margin:0 auto; padding:24px;">
-  <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
     <div>
       <h1 style="font-size:22px; font-weight:700; color:var(--color-fg-default); margin:0 0 4px;">Org-Wide Reviewer Health</h1>
       <p style="color:var(--color-fg-muted); font-size:13px; margin:0;">Engineering review quality across all repositories and reviewers</p>
@@ -35,6 +35,15 @@
       <a href="/api/team-health/export" class="gh-btn gh-btn-sm">Export CSV</a>
       <a href="/api/team-health/refresh" onclick="event.preventDefault(); fetch('/api/team-health/refresh').then(()=>location.reload())" class="gh-btn gh-btn-sm">Refresh</a>
     </div>
+  </div>
+
+  <div class="org-subnav-container">
+    <nav class="org-subnav" aria-label="Org Health Navigation">
+      <a href="/team-health" class="org-subnav-tab active">Reviewer Health</a>
+      <a href="/load-balancing" class="org-subnav-tab">Load Balancing</a>
+      <a href="/pair-intelligence" class="org-subnav-tab">Pair Intelligence</a>
+      <a href="/sla-predictions" class="org-subnav-tab">SLA Predictions</a>
+    </nav>
   </div>
 
   {% set kpi = org_kpis %}
