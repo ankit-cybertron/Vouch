@@ -48,9 +48,6 @@
         </tr></thead>
         <tbody>
           {% for p in predictions %}
-          {% if p.sla_remaining_hours < 0 %}{% set src = "var(--color-danger-fg)" %}
-          {% elif p.sla_remaining_hours < 8 %}{% set src = "var(--color-attention-fg)" %}
-          {% else %}{% set src = "var(--color-success-fg)" %}{% endif %}
           <tr style="border-bottom:1px solid var(--color-border-muted);">
             <td style="padding:10px 12px; text-align:center;">
               {% if p.status == "breached" %}<span class="gh-label gh-label-high">BREACHED</span>
@@ -63,7 +60,7 @@
             </td>
             <td style="padding:10px 12px; font-size:12px; color:var(--color-fg-muted);">{{ p.repo }}</td>
             <td style="padding:10px 12px; text-align:center; font-size:12px;">{{ p.age_hours }}h</td>
-            <td style="padding:10px 12px; text-align:center; font-size:12px; color:{{ src }}; font-weight:600;">
+            <td class="{% if p.sla_remaining_hours < 0 %}color-danger{% elif p.sla_remaining_hours < 8 %}color-attention{% else %}color-success{% endif %}" style="padding:10px 12px; text-align:center; font-size:12px; font-weight:600;">
               {% if p.sla_remaining_hours < 0 %}BREACHED{% else %}{{ p.sla_remaining_hours }}h{% endif %}
             </td>
             <td style="padding:10px 12px; text-align:center; font-size:12px; font-weight:600; color:var(--color-danger-fg);">
@@ -72,7 +69,7 @@
             <td style="padding:10px 12px; min-width:100px;">
               {% set bp = (p.breach_probability * 100)|int %}
               <div style="display:flex; align-items:center; gap:6px;">
-                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div style="height:100%; width:{{ bp }}%; background:var(--color-danger-fg); border-radius:3px;"></div></div>
+                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div class="bg-danger" data-fill-width="{{ bp }}" style="height:100%; border-radius:3px;"></div></div>
                 <span style="font-size:11px; color:var(--color-fg-muted); min-width:30px;">{{ bp }}%</span>
               </div>
             </td>
@@ -87,7 +84,7 @@
               {% else %}
               {% set lp = (p.reviewer_avg_load * 100)|int %}
               <div style="display:flex; align-items:center; gap:6px;">
-                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div style="height:100%; width:{{ lp }}%; background:var(--color-attention-fg); border-radius:3px;"></div></div>
+                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div class="bg-attention" data-fill-width="{{ lp }}" style="height:100%; border-radius:3px;"></div></div>
                 <span style="font-size:11px; color:var(--color-fg-muted); min-width:30px;">{{ lp }}%</span>
               </div>
               {% endif %}

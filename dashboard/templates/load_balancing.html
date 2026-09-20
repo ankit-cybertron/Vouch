@@ -53,15 +53,12 @@
         <tbody>
           {% for r in reviewers %}
           {% set load = r.current_load_score %}
-          {% if load >= 0.70 %}{% set lc = "var(--color-danger-fg)" %}
-          {% elif load >= 0.40 %}{% set lc = "var(--color-attention-fg)" %}
-          {% else %}{% set lc = "var(--color-success-fg)" %}{% endif %}
           <tr style="border-bottom:1px solid var(--color-border-muted);">
             <td style="padding:10px 12px;"><a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); font-weight:500; text-decoration:none;">@{{ r.login }}</a></td>
             <td style="padding:10px 12px; min-width:120px;">
               <div style="display:inline-flex; align-items:center; gap:8px; width:100%;">
-                <div style="flex:1; height:8px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;"><div style="height:100%; width:{{ (load * 100)|int }}%; background:{{ lc }}; border-radius:4px;"></div></div>
-                <span style="font-size:11px; color:{{ lc }}; font-weight:600; min-width:36px;">{{ (load * 100)|int }}%</span>
+                <div style="flex:1; height:8px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;"><div class="{% if load >= 0.70 %}bg-danger{% elif load >= 0.40 %}bg-attention{% else %}bg-success{% endif %}" data-fill-width="{{ (load * 100)|int }}" style="height:100%; border-radius:4px;"></div></div>
+                <span class="{% if load >= 0.70 %}color-danger{% elif load >= 0.40 %}color-attention{% else %}color-success{% endif %}" style="font-size:11px; font-weight:600; min-width:36px;">{{ (load * 100)|int }}%</span>
               </div>
             </td>
             <td style="padding:10px 12px; text-align:center;">{{ r.reviews_today }}</td>
@@ -98,10 +95,10 @@
     {% if suggestions %}
     <div style="padding:12px; display:flex; flex-direction:column; gap:12px;">
       {% for s in suggestions %}
-      {% if s.change_risk >= 0.65 %}{% set rc = "gh-label-high" %}{% set rl = "HIGH" %}{% set bc = "var(--color-danger-fg)" %}
-      {% elif s.change_risk >= 0.35 %}{% set rc = "gh-label-medium" %}{% set rl = "MEDIUM" %}{% set bc = "var(--color-attention-fg)" %}
-      {% else %}{% set rc = "gh-label-low" %}{% set rl = "LOW" %}{% set bc = "var(--color-success-fg)" %}{% endif %}
-      <div class="gh-box" style="padding:14px; border-left:3px solid {{ bc }};">
+      {% if s.change_risk >= 0.65 %}{% set rc = "gh-label-high" %}{% set rl = "HIGH" %}{% set border_class = "border-fatigue-high" %}
+      {% elif s.change_risk >= 0.35 %}{% set rc = "gh-label-medium" %}{% set rl = "MEDIUM" %}{% set border_class = "border-fatigue-moderate" %}
+      {% else %}{% set rc = "gh-label-low" %}{% set rl = "LOW" %}{% set border_class = "border-fatigue-healthy" %}{% endif %}
+      <div class="gh-box {{ border_class }}" style="padding:14px;">
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;"><span class="gh-label {{ rc }}">{{ rl }}</span><span style="font-size:12px; color:var(--color-fg-muted);">{{ s.repo }} #{{ s.number }}</span></div>
         <div style="font-size:14px; font-weight:600; color:var(--color-fg-default); margin-bottom:8px;">{{ s.title }}</div>
         <div style="font-size:12px; color:var(--color-fg-muted); margin-bottom:8px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
@@ -134,12 +131,9 @@
     <div style="padding:16px; display:flex; flex-direction:column; gap:8px;">
       {% for r in reviewers[:15] %}
       {% set load = r.current_load_score %}
-      {% if load >= 0.70 %}{% set bc = "var(--color-danger-fg)" %}
-      {% elif load >= 0.40 %}{% set bc = "var(--color-attention-fg)" %}
-      {% else %}{% set bc = "var(--color-success-fg)" %}{% endif %}
       <div style="display:flex; align-items:center; gap:12px;">
         <div style="width:120px; font-size:12px; text-align:right; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); text-decoration:none;">@{{ r.login }}</a></div>
-        <div style="flex:1; height:14px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;"><div style="height:100%; width:{{ (load * 100)|int }}%; background:{{ bc }}; border-radius:4px;"></div></div>
+        <div style="flex:1; height:14px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;"><div class="{% if load >= 0.70 %}bg-danger{% elif load >= 0.40 %}bg-attention{% else %}bg-success{% endif %}" data-fill-width="{{ (load * 100)|int }}" style="height:100%; border-radius:4px;"></div></div>
         <div style="width:36px; font-size:11px; color:var(--color-fg-muted); flex-shrink:0;">{{ (load * 100)|int }}%</div>
         <div style="width:80px; flex-shrink:0;">
           {% if r.capacity_tier == "overloaded" %}<span class="gh-label gh-label-high">Overloaded</span>

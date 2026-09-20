@@ -61,6 +61,9 @@
     document.querySelectorAll('[data-fill-width]').forEach(function (el) {
       el.style.width = (el.getAttribute('data-fill-width') || '0') + '%';
     });
+    document.querySelectorAll('[data-fill-height]').forEach(function (el) {
+      el.style.height = (el.getAttribute('data-fill-height') || '4') + 'px';
+    });
     document.querySelectorAll('.lang-dot[data-lang-color]').forEach(function (el) {
       const color = el.getAttribute('data-lang-color');
       if (color) el.style.backgroundColor = color;

@@ -32,24 +32,18 @@
       </tr></thead>
       <tbody>
         {% for p in pair_list %}
-        {% if p.avg_depth_score >= 0.65 %}{% set dc = "var(--color-success-fg)" %}
-        {% elif p.avg_depth_score >= 0.35 %}{% set dc = "var(--color-attention-fg)" %}
-        {% else %}{% set dc = "var(--color-danger-fg)" %}{% endif %}
-        {% if p.requeue_rate < 0.10 %}{% set rqc = "var(--color-success-fg)" %}
-        {% elif p.requeue_rate <= 0.30 %}{% set rqc = "var(--color-attention-fg)" %}
-        {% else %}{% set rqc = "var(--color-danger-fg)" %}{% endif %}
         {% set qpct = (p.quality_score * 100)|int %}
         <tr style="border-bottom:1px solid var(--color-border-muted);">
           <td style="padding:10px 12px;"><a href="/reviewer/{{ p.author }}" style="color:var(--color-accent-fg); text-decoration:none;">@{{ p.author }}</a></td>
           <td style="padding:10px 12px;"><a href="/reviewer/{{ p.reviewer }}" style="color:var(--color-accent-fg); text-decoration:none;">@{{ p.reviewer }}</a></td>
           <td style="padding:10px 12px; text-align:center;">{{ p.reviews }}</td>
-          <td style="padding:10px 12px; text-align:center; color:{{ dc }}; font-weight:600;">{{ p.avg_depth_score }}</td>
+          <td class="{% if p.avg_depth_score >= 0.65 %}color-success{% elif p.avg_depth_score >= 0.35 %}color-attention{% else %}color-danger{% endif %}" style="padding:10px 12px; text-align:center; font-weight:600;">{{ p.avg_depth_score }}</td>
           <td style="padding:10px 12px; text-align:center;">{{ p.avg_residual_risk }}</td>
-          <td style="padding:10px 12px; text-align:center; color:{{ rqc }}; font-weight:600;">{{ (p.requeue_rate * 100)|int }}%</td>
+          <td class="{% if p.requeue_rate < 0.10 %}color-success{% elif p.requeue_rate <= 0.30 %}color-attention{% else %}color-danger{% endif %}" style="padding:10px 12px; text-align:center; font-weight:600;">{{ (p.requeue_rate * 100)|int }}%</td>
           <td style="padding:10px 12px;">{% for d in p.top_domains %}<span class="gh-label" style="font-size:10px; margin-right:4px;">{{ d }}</span>{% endfor %}</td>
           <td style="padding:10px 12px; min-width:100px;">
             <div style="display:flex; align-items:center; gap:6px;">
-              <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div style="height:100%; width:{{ qpct }}%; background:var(--color-success-fg); border-radius:3px;"></div></div>
+              <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div class="bg-success" data-fill-width="{{ qpct }}" style="height:100%; border-radius:3px;"></div></div>
               <span style="font-size:11px; color:var(--color-fg-muted); min-width:28px;">{{ qpct }}%</span>
             </div>
           </td>

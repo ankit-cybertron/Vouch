@@ -2,6 +2,29 @@
 {% block title %}Org Health{% endblock %}
 {% block meta_description %}Engineering review quality across all repositories and reviewers{% endblock %}
 {% block content %}
+<style>
+  .kpi-val { font-size:26px; font-weight:700; color:var(--color-fg-default); }
+  .kpi-lbl { font-size:12px; color:var(--color-fg-muted); margin-top:4px; }
+  .c-danger { color:var(--color-danger-fg) !important; }
+  .c-attention { color:var(--color-attention-fg) !important; }
+  .c-success { color:var(--color-success-fg) !important; }
+  .c-done { color:var(--color-done-fg) !important; }
+  .bg-danger { background-color:var(--color-danger-fg) !important; }
+  .bg-attention { background-color:var(--color-attention-fg) !important; }
+  .bg-success { background-color:var(--color-success-fg) !important; }
+  .bg-done { background-color:var(--color-done-fg) !important; }
+  .border-fatigue-high { border-left:3px solid var(--color-danger-fg) !important; }
+  .border-fatigue-moderate { border-left:3px solid var(--color-attention-fg) !important; }
+  .border-fatigue-healthy { border-left:3px solid var(--color-success-fg) !important; }
+  .score-high { color:var(--color-success-fg); }
+  .score-med { color:var(--color-attention-fg); }
+  .score-low { color:var(--color-danger-fg); }
+  .spark-bar { min-height:4px; }
+  .spark-high { background-color:var(--color-success-fg); }
+  .spark-med { background-color:var(--color-attention-fg); }
+  .spark-low { background-color:var(--color-danger-fg); }
+</style>
+
 <div style="max-width:1280px; margin:0 auto; padding:24px;">
   <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
     <div>
@@ -18,17 +41,17 @@
 
   {# Org KPI Row 1 #}
   <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; margin-bottom:12px;">
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:var(--color-fg-default);">{{ kpi.total_prs_scored }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Total PRs Scored</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:var(--color-fg-default);">{{ kpi.open_prs }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Open PRs</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:{% if kpi.high_risk_open > 0 %}var(--color-danger-fg){% else %}var(--color-fg-default){% endif %};">{{ kpi.high_risk_open }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">High-Risk Open</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:var(--color-fg-default);">{{ kpi.requeued_total }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Re-Queued Total</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.total_prs_scored }}</div><div class="kpi-lbl">Total PRs Scored</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.open_prs }}</div><div class="kpi-lbl">Open PRs</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val{% if kpi.high_risk_open > 0 %} c-danger{% endif %}">{{ kpi.high_risk_open }}</div><div class="kpi-lbl">High-Risk Open</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.requeued_total }}</div><div class="kpi-lbl">Re-Queued Total</div></div>
   </div>
   {# Org KPI Row 2 #}
   <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; margin-bottom:24px;">
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:{% if kpi.org_rubber_stamp_rate > 20 %}var(--color-danger-fg){% else %}var(--color-fg-default){% endif %};">{{ kpi.org_rubber_stamp_rate }}%</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Org Rubber-Stamp Rate</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:var(--color-fg-default);">{{ kpi.avg_residual_risk }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Avg Residual Risk</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:{% if kpi.high_fatigue_count > 0 %}var(--color-danger-fg){% else %}var(--color-fg-default){% endif %};">{{ kpi.high_fatigue_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">High Fatigue Reviewers</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:26px; font-weight:700; color:var(--color-success-fg);">{{ kpi.healthy_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Healthy Reviewers</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val{% if kpi.org_rubber_stamp_rate > 20 %} c-danger{% endif %}">{{ kpi.org_rubber_stamp_rate }}%</div><div class="kpi-lbl">Org Rubber-Stamp Rate</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.avg_residual_risk }}</div><div class="kpi-lbl">Avg Residual Risk</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val{% if kpi.high_fatigue_count > 0 %} c-danger{% endif %}">{{ kpi.high_fatigue_count }}</div><div class="kpi-lbl">High Fatigue Reviewers</div></div>
+    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val c-success">{{ kpi.healthy_count }}</div><div class="kpi-lbl">Healthy Reviewers</div></div>
   </div>
 
   {# Section 1: Reviewer Health Cards #}
@@ -40,16 +63,13 @@
     {% set remaining = reviewer_cards[24:] %}
     <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px;">
       {% for r in visible %}
-      {% if r.fatigue_state == "high" %}{% set border_c = "var(--color-danger-fg)" %}
-      {% elif r.fatigue_state == "moderate" %}{% set border_c = "var(--color-attention-fg)" %}
-      {% else %}{% set border_c = "var(--color-success-fg)" %}{% endif %}
-      {% if r.health_score >= 70 %}{% set hc = "var(--color-success-fg)" %}
-      {% elif r.health_score >= 40 %}{% set hc = "var(--color-attention-fg)" %}
-      {% else %}{% set hc = "var(--color-danger-fg)" %}{% endif %}
-      <div class="gh-box" style="padding:14px; border-left:3px solid {{ border_c }};">
+      <div class="gh-box border-fatigue-{{ r.fatigue_state or 'healthy' }}" style="padding:14px;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); font-weight:600; font-size:14px; text-decoration:none;">@{{ r.login }}</a>
-          <span style="font-size:12px; font-weight:700; color:{{ hc }};">{{ r.health_score }}/100</span>
+          <a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); font-weight:600; font-size:14px; text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+            <img src="https://github.com/{{ r.login }}.png" onerror="this.src='https://github.com/github.png'" alt="@{{ r.login }}" style="width:20px; height:20px; border-radius:50%; object-fit:cover; flex-shrink:0;" />
+            <span>@{{ r.login }}</span>
+          </a>
+          <span class="score-{% if r.health_score >= 70 %}high{% elif r.health_score >= 40 %}med{% else %}low{% endif %}" style="font-size:12px; font-weight:700;">{{ r.health_score }}/100</span>
         </div>
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
           {% if r.fatigue_state == "high" %}<span class="gh-label gh-label-high" style="font-size:10px;">High Fatigue</span>
@@ -67,10 +87,8 @@
         {% if r.sparkline %}
         <div class="sparkline" style="display:flex; align-items:flex-end; gap:2px; height:24px; margin-bottom:8px;">
           {% for score in r.sparkline %}
-          {% if score >= 0.65 %}{% set sc = "var(--color-success-fg)" %}
-          {% elif score >= 0.35 %}{% set sc = "var(--color-attention-fg)" %}
-          {% else %}{% set sc = "var(--color-danger-fg)" %}{% endif %}
-          <div class="spark-bar" style="flex:1; height:{{ [4, (score * 24)|int]|max }}px; background:{{ sc }}; border-radius:2px; min-width:4px;"></div>
+          {% set bar_h = [4, (score * 24)|int]|max %}
+          <div class="spark-bar spark-{% if score >= 0.65 %}high{% elif score >= 0.35 %}med{% else %}low{% endif %}" data-fill-height="{{ bar_h }}" style="flex:1; min-width:4px; border-radius:2px;"></div>
           {% endfor %}
         </div>
         {% endif %}
@@ -85,16 +103,13 @@
       <summary style="cursor:pointer; font-size:13px; color:var(--color-accent-fg); padding:8px 0; list-style:none;">Show all {{ reviewer_cards|length }} reviewers</summary>
       <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; margin-top:16px;">
         {% for r in remaining %}
-        {% if r.fatigue_state == "high" %}{% set border_c = "var(--color-danger-fg)" %}
-        {% elif r.fatigue_state == "moderate" %}{% set border_c = "var(--color-attention-fg)" %}
-        {% else %}{% set border_c = "var(--color-success-fg)" %}{% endif %}
-        {% if r.health_score >= 70 %}{% set hc = "var(--color-success-fg)" %}
-        {% elif r.health_score >= 40 %}{% set hc = "var(--color-attention-fg)" %}
-        {% else %}{% set hc = "var(--color-danger-fg)" %}{% endif %}
-        <div class="gh-box" style="padding:14px; border-left:3px solid {{ border_c }};">
+        <div class="gh-box border-fatigue-{{ r.fatigue_state or 'healthy' }}" style="padding:14px;">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-            <a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); font-weight:600; font-size:14px; text-decoration:none;">@{{ r.login }}</a>
-            <span style="font-size:12px; font-weight:700; color:{{ hc }};">{{ r.health_score }}/100</span>
+            <a href="/reviewer/{{ r.login }}" style="color:var(--color-accent-fg); font-weight:600; font-size:14px; text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+              <img src="https://github.com/{{ r.login }}.png" onerror="this.src='https://github.com/github.png'" alt="@{{ r.login }}" style="width:20px; height:20px; border-radius:50%; object-fit:cover; flex-shrink:0;" />
+              <span>@{{ r.login }}</span>
+            </a>
+            <span class="score-{% if r.health_score >= 70 %}high{% elif r.health_score >= 40 %}med{% else %}low{% endif %}" style="font-size:12px; font-weight:700;">{{ r.health_score }}/100</span>
           </div>
           <div style="font-size:12px; color:var(--color-fg-muted);">{{ r.reviews_total }} reviews · Depth: {{ r.avg_depth_score }} · RS: {{ (r.rubber_stamp_rate * 100)|int }}%</div>
         </div>
@@ -131,7 +146,9 @@
             <td style="padding:10px 12px; text-align:center;">{{ m.avg_depth }}</td>
             <td style="padding:10px 12px; min-width:120px;">
               <div style="display:flex; align-items:center; gap:6px;">
-                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;"><div style="height:100%; width:{{ rp }}%; background:{% if m.avg_residual >= 0.65 %}var(--color-danger-fg){% elif m.avg_residual >= 0.35 %}var(--color-attention-fg){% else %}var(--color-success-fg){% endif %}; border-radius:3px;"></div></div>
+                <div style="flex:1; height:6px; background:var(--color-border-muted); border-radius:3px; overflow:hidden;">
+                  <div class="{% if m.avg_residual >= 0.65 %}bg-danger{% elif m.avg_residual >= 0.35 %}bg-attention{% else %}bg-success{% endif %}" data-fill-width="{{ rp }}" style="height:100%; border-radius:3px;"></div>
+                </div>
                 <span style="font-size:11px; color:var(--color-fg-muted); min-width:30px;">{{ m.avg_residual }}</span>
               </div>
             </td>
@@ -156,17 +173,19 @@
     <div class="gh-box">
       <div class="gh-box-header"><h2 style="font-size:15px; font-weight:600; margin:0;">Review Pacing Profile</h2></div>
       <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
-        {% for label, key, pct_key, color in [
-          ("Rushed (< 5 min)", "rushed", "rushed_pct", "var(--color-danger-fg)"),
-          ("Brief (5–20 min)", "brief", "brief_pct", "var(--color-attention-fg)"),
-          ("Standard (20–60 min)", "standard", "standard_pct", "var(--color-success-fg)"),
-          ("Thorough (> 60 min)", "thorough", "thorough_pct", "var(--color-done-fg)")
+        {% for label, key, pct_key, bar_cls in [
+          ("Rushed (< 5 min)", "rushed", "rushed_pct", "bg-danger"),
+          ("Brief (5–20 min)", "brief", "brief_pct", "bg-attention"),
+          ("Standard (20–60 min)", "standard", "standard_pct", "bg-success"),
+          ("Thorough (> 60 min)", "thorough", "thorough_pct", "bg-done")
         ] %}
         <div>
           <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--color-fg-muted); margin-bottom:4px;">
             <span>{{ label }}</span><span>{{ pacing[key] }} PRs ({{ pacing[pct_key] }}%)</span>
           </div>
-          <div style="height:8px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;"><div style="height:100%; width:{{ pacing[pct_key] }}%; background:{{ color }}; border-radius:4px;"></div></div>
+          <div style="height:8px; background:var(--color-border-muted); border-radius:4px; overflow:hidden;">
+            <div class="{{ bar_cls }}" data-fill-width="{{ pacing[pct_key] }}" style="height:100%; border-radius:4px;"></div>
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -187,11 +206,22 @@
         {% set cnt = discrepancies[key] %}
         <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--color-border-muted);">
           <span style="font-size:13px; color:var(--color-fg-default);">{{ label }}</span>
-          <span style="font-size:13px; font-weight:700; color:{% if cnt > 0 %}var(--color-danger-fg){% else %}var(--color-success-fg){% endif %};">{{ cnt }}</span>
+          <span class="{% if cnt > 0 %}c-danger{% else %}c-success{% endif %}" style="font-size:13px; font-weight:700;">{{ cnt }}</span>
         </div>
         {% endfor %}
       </div>
     </div>
   </div>
 </div>
+
+<script>
+  (function() {
+    document.querySelectorAll('[data-fill-height]').forEach(function(el) {
+      el.style.height = (el.getAttribute('data-fill-height') || '4') + 'px';
+    });
+    document.querySelectorAll('[data-fill-width]').forEach(function(el) {
+      el.style.width = (el.getAttribute('data-fill-width') || '0') + '%';
+    });
+  })();
+</script>
 {% endblock %}
