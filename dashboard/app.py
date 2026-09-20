@@ -19,14 +19,10 @@ import re
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
-<<<<<<< HEAD
-from urllib.parse import urlparse, urlencode
-=======
 import logging
 from urllib.parse import urlparse, urlencode
 
 logger = logging.getLogger(__name__)
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 
 from markupsafe import Markup
 import requests
@@ -59,11 +55,8 @@ try:
             break
 except ImportError:
     pass
-<<<<<<< HEAD
-=======
 
 from dashboard.session_store import get_session_store
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 
 store = get_store()
 session_store = get_session_store()
@@ -148,20 +141,6 @@ def _resolve_github_token() -> str:
       4. git credential helper
     """
     # Priority 0 — GitHub App Installation Access Token
-<<<<<<< HEAD
-    try:
-        if has_request_context() and github_app_auth.is_configured():
-            installation_id = session.get("installation_id")
-            if installation_id:
-                try:
-                    return github_app_auth.get_installation_token(installation_id)
-                except Exception as exc:
-                    print(f"[WARN] GitHub App token fetch failed: {exc}")
-    except Exception:
-        pass
-
-=======
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     try:
         if has_request_context() and github_app_auth.is_configured():
             installation_id = session.get("installation_id")
@@ -1348,17 +1327,10 @@ def inject_global_vars():
 @app.route("/")
 def landing_page():
     """Main Landing Page introducing Vouch, with GitHub App install & Demo mode entry points."""
-<<<<<<< HEAD
-    # If user is already authenticated (GitHub App or OAuth), route directly to repos
-    already_authed = (
-        session.get("installation_id") and github_app_auth.is_configured()
-    ) or (session.get("github_token") and not request.args.get("reauth"))
-=======
     # If user is already authenticated (GitHub App or OAuth/PAT), route directly to repos
     already_authed = (
         session.get("installation_id") and github_app_auth.is_configured()
     ) or ((session.get("auth_sid") or session.get("github_token")) and not request.args.get("reauth"))
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     if already_authed and not request.args.get("reauth"):
         return redirect(url_for("repos_page"))
 
@@ -1390,6 +1362,11 @@ def landing_page():
     computed_oauth_callback_uri = _oauth_callback_uri()
     computed_app_callback_uri = _app_setup_callback_uri()
 
+    raw_yt = os.environ.get("YOUTUBE_DEMO_URL", "").strip() or "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    vid_match = re.search(r"(?:v=|\/embed\/|youtu\.be\/|\/v\/|watch\?v=)([a-zA-Z0-9_-]{11})", raw_yt)
+    youtube_embed_url = f"https://www.youtube.com/embed/{vid_match.group(1)}" if vid_match else raw_yt
+    youtube_url = raw_yt
+
     return render_template(
         "landing.html",
         sample_repos=sample_repos,
@@ -1398,11 +1375,10 @@ def landing_page():
         error=error,
         app_configured=app_configured,
         app_install_url=app_install_url,
-<<<<<<< HEAD
-=======
         computed_oauth_callback_uri=computed_oauth_callback_uri,
         computed_app_callback_uri=computed_app_callback_uri,
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
+        youtube_url=youtube_url,
+        youtube_embed_url=youtube_embed_url,
     )
 
 
@@ -1534,12 +1510,8 @@ def auth_github():
     if client_id and client_secret:
         state = secrets.token_urlsafe(16)
         session["oauth_state"] = state
-<<<<<<< HEAD
-        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
-=======
         # Use APP_BASE_URL when deployed (Elastic Beanstalk / reverse proxy)
         redirect_uri = _oauth_callback_uri()
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 
         params = {
             "client_id": client_id,
@@ -1616,12 +1588,8 @@ def auth_github_callback():
     client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "").strip()
 
     try:
-<<<<<<< HEAD
-        redirect_uri = request.host_url.rstrip("/") + url_for("auth_github_callback")
-=======
         # Use APP_BASE_URL when deployed so redirect_uri matches what GitHub expects
         redirect_uri = _oauth_callback_uri()
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
         token_resp = requests.post(
             "https://github.com/login/oauth/access_token",
             headers={"Accept": "application/json"},
@@ -1701,8 +1669,6 @@ def auth_logout():
     return redirect(url_for("landing_page"))
 
 
-<<<<<<< HEAD
-=======
 # ── Option 4: In-App UI Personal Access Token API (Fallback) ─────
 @app.route("/api/auth/token", methods=["POST"])
 def api_save_token():
@@ -1776,7 +1742,6 @@ def api_save_token():
         return jsonify({"success": False, "error": "Unexpected error validating token."}), 500
 
 
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
 @app.route("/api/auth/clear-token", methods=["POST"])
 def api_clear_token():
     """Reset session to default demo mode."""
@@ -1798,15 +1763,9 @@ def api_clear_token():
 def api_auth_status():
     """Return current session auth state."""
     installation_id = session.get("installation_id")
-<<<<<<< HEAD
-    token = session.get("github_token")
-    authenticated = bool(installation_id) or bool(token)
-    auth_type = session.get("auth_type", "demo" if not authenticated else "token")
-=======
     has_token = bool(session.get("auth_sid")) or bool(session.get("github_token"))
     authenticated = bool(installation_id) or has_token
     auth_type = session.get("auth_type", "demo" if not authenticated else ("github_app" if installation_id else "token"))
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     return jsonify({
         "authenticated": authenticated,
         "auth_type": auth_type,
@@ -3544,8 +3503,5 @@ def api_reviewer_refresh(username):
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
-=======
 
->>>>>>> ecaff28e3ca1f00f23350496053b24bfbf00ef31
     app.run(debug=True, port=5000)
