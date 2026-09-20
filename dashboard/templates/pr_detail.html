@@ -4,6 +4,31 @@
 
 {% block content %}
 
+{% macro format_risk_pct(val) -%}
+  {%- if val is none -%}
+    0%
+  {%- else -%}
+    {%- set pct = val * 100 -%}
+    {%- if (pct % 1)|abs < 0.05 -%}
+      {{ pct|round|int }}%
+    {%- else -%}
+      {{ "%.1f"|format(pct) }}%
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro risk_bar_width(val) -%}
+  {{ [min(max(((val or 0) * 100), 0), 100), 0]|max|round(1) }}%
+{%- endmacro %}
+
+{% macro format_feature_name(key) -%}
+  {%- if not key -%}
+    {{ "" }}
+  {%- else -%}
+    {{ key | replace('_', ' ') | title }}
+  {%- endif -%}
+{%- endmacro %}
+
 <!-- ── PR Header ────────────────────────────────────────────── -->
 <div class="gh-pr-header-detail">
   <div style="margin-bottom: 12px;">
@@ -279,22 +304,52 @@
 
     <!-- Model 1 Feature Attribution Box -->
     <div class="gh-box" style="margin-bottom:20px;">
-      <div class="gh-box-header">
+      <div class="gh-box-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
         <div style="font-weight:600;">Model 1 · Change Risk Attribution</div>
-        <span class="gh-label gh-label-confidence">SHAP Weights</span>
+        <span class="gh-label gh-label-confidence" style="font-size:11px; padding:2px 7px;">SHAP Weights</span>
       </div>
-      <div style="padding:16px 20px;">
-        <div style="position:relative; height:180px; width:100%;">
-          <canvas id="riskFeaturesChart" aria-label="Feature contribution chart"></canvas>
-        </div>
-        <div style="margin-top:16px; border-top:1px solid var(--color-border-muted); padding-top:12px;">
+      <div style="padding:20px;">
+        {% if pr.top_features and pr.top_features | length > 0 %}
+          {# Calculate maximum contribution dynamically for relative scale #}
+          {% set max_val = namespace(v=0.001) %}
           {% for f in pr.top_features %}
-          <div style="display:flex; align-items:center; justify-content:space-between; font-size:13px; padding:4px 0;">
-            <span style="font-family:ui-monospace, monospace; color:var(--color-fg-muted);">{{ f.feature }}</span>
-            <span style="font-weight:600; font-family:ui-monospace, monospace;">{{ "%.3f" | format(f.contribution) }}</span>
-          </div>
+            {% set c = (f.contribution if (f is mapping and f.contribution is defined and f.contribution is not none) else 0) %}
+            {% if c > max_val.v %}
+              {% set max_val.v = c %}
+            {% endif %}
           {% endfor %}
-        </div>
+
+          <div class="vouch-contrib-chart" id="model1-contrib-chart" data-max-val="{{ max_val.v }}">
+            {% for f in pr.top_features %}
+              {% set feat_key = f.feature if (f is mapping and f.feature is defined) else (f if f is string else '') %}
+              {% set val = (f.contribution if (f is mapping and f.contribution is defined and f.contribution is not none and f.contribution >= 0) else 0) %}
+              {% set width_pct = ((val / max_val.v) * 100) if max_val.v > 0 else 0 %}
+              <div class="vouch-contrib-row" data-feature="{{ feat_key }}" data-contribution="{{ '%.3f' | format(val) }}" title="{{ format_feature_name(feat_key) }}: {{ '%.3f' | format(val) }} ({{ feat_key }})">
+                <div class="vouch-contrib-label">
+                  <span class="vouch-contrib-display-name">{{ format_feature_name(feat_key) }}</span>
+                  <span class="vouch-contrib-raw-key">{{ feat_key }}</span>
+                </div>
+                <div class="vouch-contrib-bar-wrap">
+                  <div class="vouch-contrib-track">
+                    <div class="vouch-contrib-bar" data-bar-width="{{ width_pct | round(1) }}%"></div>
+                  </div>
+                </div>
+                <div class="vouch-contrib-val">
+                  {{ "%.3f" | format(val) }}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+          <script>
+            document.querySelectorAll('#model1-contrib-chart .vouch-contrib-bar').forEach(function(b) {
+              b.style.width = b.getAttribute('data-bar-width');
+            });
+          </script>
+        {% else %}
+          <div class="vouch-empty-attribution" style="padding:28px 16px; text-align:center; color:var(--color-fg-muted); font-size:13px;">
+            No feature attribution available.
+          </div>
+        {% endif %}
       </div>
     </div>
 
@@ -444,10 +499,18 @@
         <span>Labels</span>
       </div>
       <div class="gh-sidebar-content" style="display:flex; flex-wrap:wrap; gap:6px;">
+        {% if pr.risk_tier %}
         <span class="gh-label gh-label-{{ pr.risk_tier }}">risk: {{ pr.risk_tier }}</span>
+        {% endif %}
+        {% if pr.review_confidence is not none %}
+        <span class="gh-label gh-label-confidence">confidence: {{ format_risk_pct(pr.review_confidence) }}</span>
+        {% elif pr.confidence_pct is defined %}
         <span class="gh-label gh-label-confidence">confidence: {{ pr.confidence_pct }}%</span>
+        {% endif %}
         {% if pr.re_queued %}
-        <span class="gh-label gh-label-requeued">needs-rereview</span>
+        <span class="gh-label gh-label-requeued">needs-re-review</span>
+        {% else %}
+        <span class="gh-label gh-label-low" style="background:var(--color-success-subtle); color:var(--color-success-fg); border-color:var(--color-success-emphasis);">reviewed</span>
         {% endif %}
         {% for sf in pr.sensitive_files %}
         <span class="gh-label gh-label-confidence">{{ sf.split('/')[-1] }}</span>
@@ -456,49 +519,62 @@
     </div>
 
     <!-- Vouch Risk Breakdown -->
-    <div class="gh-sidebar-section">
-      <div class="gh-sidebar-header">
-        <span>Vouch Risk Breakdown</span>
+    <div class="gh-sidebar-section vouch-sidebar-risk-card">
+      <div class="gh-sidebar-header" style="margin-bottom:6px; border-bottom:none; padding-bottom:0;">
+        <div style="font-weight:600; font-size:13px; color:var(--color-fg-default);">Vouch Risk Breakdown</div>
+        <div style="font-size:11px; color:var(--color-fg-muted); font-weight:normal; margin-top:2px;">AI-powered review risk analysis</div>
       </div>
-      <div class="gh-sidebar-content" style="display:flex; flex-direction:column; gap:10px;">
-        <div>
-          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:2px;">
-            <span>Change Risk</span>
-            <strong>{{ "%.2f" | format(pr.change_risk or 0) }}</strong>
+
+      {% set cr_val = pr.change_risk if pr.change_risk is not none else 0 %}
+      {% set cr_tier = 'high' if cr_val >= 0.65 else ('medium' if cr_val >= 0.35 else 'low') %}
+      {% set cr_bar_class = 'breakdown-bar-change' if cr_tier == 'high' else ('breakdown-bar-attention' if cr_tier == 'medium' else 'breakdown-bar-confidence') %}
+
+      {% set conf_val = pr.review_confidence if pr.review_confidence is not none else 0 %}
+      {% set conf_tier = 'low' if conf_val >= 0.65 else ('medium' if conf_val >= 0.35 else 'high') %}
+      {% set conf_bar_class = 'breakdown-bar-confidence' if conf_val >= 0.65 else ('breakdown-bar-attention' if conf_val >= 0.35 else 'breakdown-bar-change') %}
+
+      {% set res_val = pr.residual_risk if pr.residual_risk is not none else 0 %}
+      {% set res_tier = pr.risk_tier if pr.risk_tier else ('high' if res_val >= 0.65 else ('medium' if res_val >= 0.35 else 'low')) %}
+
+      <div class="vouch-sidebar-risk-body">
+        <!-- Change Risk -->
+        <div class="vouch-sidebar-metric-row">
+          <div class="vouch-sidebar-metric-header">
+            <span class="vouch-sidebar-metric-name">Change Risk</span>
+            <span class="vouch-sidebar-metric-val risk-color-{{ cr_tier }}">{{ format_risk_pct(pr.change_risk) }}</span>
           </div>
-          <div class="gh-meter-bar" style="width:100%; height:4px; border-radius:2px;">
-            <div class="gh-meter-fill breakdown-bar-change" data-fill-width="{{ (pr.change_risk * 100)|int if pr.change_risk is not none else 0 }}"></div>
+          <div class="vouch-sidebar-metric-track">
+            <div class="vouch-sidebar-metric-bar {{ cr_bar_class }}" data-bar-width="{{ risk_bar_width(pr.change_risk) }}"></div>
           </div>
         </div>
 
-        <div>
-          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:2px;">
-            <span>Review Confidence</span>
-            <strong>{{ "%.2f" | format(pr.review_confidence or 0) }}</strong>
+        <!-- Review Confidence -->
+        <div class="vouch-sidebar-metric-row">
+          <div class="vouch-sidebar-metric-header">
+            <span class="vouch-sidebar-metric-name">Review Confidence</span>
+            <span class="vouch-sidebar-metric-val risk-color-{{ conf_tier }}">{{ format_risk_pct(pr.review_confidence) }}</span>
           </div>
-          <div class="gh-meter-bar" style="width:100%; height:4px; border-radius:2px;">
-            <div class="gh-meter-fill breakdown-bar-confidence" data-fill-width="{{ (pr.review_confidence * 100)|int if pr.review_confidence is not none else 0 }}"></div>
+          <div class="vouch-sidebar-metric-track">
+            <div class="vouch-sidebar-metric-bar {{ conf_bar_class }}" data-bar-width="{{ risk_bar_width(pr.review_confidence) }}"></div>
           </div>
         </div>
 
-        {% if pr.residual_risk is not none and pr.residual_risk >= 0.65 %}
-          {% set risk_tier = "high" %}
-        {% elif pr.residual_risk is not none and pr.residual_risk >= 0.35 %}
-          {% set risk_tier = "medium" %}
-        {% else %}
-          {% set risk_tier = "low" %}
-        {% endif %}
-
-        <div style="border-top:1px solid var(--color-border-muted); padding-top:8px;">
-          <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:2px;">
-            <strong>Residual Risk</strong>
-            <strong class="risk-color-{{ risk_tier }}">{{ "%.2f" | format(pr.residual_risk or 0) }}</strong>
+        <!-- Residual Risk -->
+        <div class="vouch-sidebar-metric-row" style="border-top:1px solid var(--color-border-muted); padding-top:10px; margin-top:2px;">
+          <div class="vouch-sidebar-metric-header">
+            <span class="vouch-sidebar-metric-name" style="font-weight:600;">Residual Risk</span>
+            <span class="vouch-sidebar-metric-val risk-color-{{ res_tier }}" style="font-weight:700; font-size:13.5px;">{{ format_risk_pct(pr.residual_risk) }}</span>
           </div>
-          <div class="gh-meter-bar" style="width:100%; height:6px; border-radius:3px;">
-            <div class="gh-meter-fill risk-bg-{{ risk_tier }}" data-fill-width="{{ pr.residual_pct or ((pr.residual_risk * 100)|int if pr.residual_risk is not none else 0) }}"></div>
+          <div class="vouch-sidebar-metric-track" style="height:6px;">
+            <div class="vouch-sidebar-metric-bar risk-bg-{{ res_tier }}" data-bar-width="{{ risk_bar_width(pr.residual_risk) }}"></div>
           </div>
         </div>
       </div>
+      <script>
+        document.querySelectorAll('.vouch-sidebar-risk-body .vouch-sidebar-metric-bar').forEach(function(b) {
+          b.style.width = b.getAttribute('data-bar-width');
+        });
+      </script>
     </div>
 
     <!-- Repository Details -->
@@ -520,75 +596,36 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script id="feature-data" type="application/json">
   {{ (pr.top_features or []) | tojson }}
 </script>
 <script>
+  function formatFeatureDisplayName(key) {
+    if (!key) return '';
+    return String(key)
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+  }
+
   (function() {
     document.querySelectorAll('[data-fill-width]').forEach(function(el) {
       el.style.width = (el.getAttribute('data-fill-width') || '0') + '%';
     });
 
-    const featureScript = document.getElementById('feature-data');
-    let rawFeatures = [];
-    if (featureScript && featureScript.textContent) {
-      try {
-        rawFeatures = JSON.parse(featureScript.textContent.trim());
-      } catch (e) {
-        rawFeatures = [];
-      }
-    }
-
-    const featureData = {
-      labels: rawFeatures.map(function(f) {
-        return (f.feature || '').replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
-      }),
-      values: rawFeatures.map(function(f) {
-        return typeof f.contribution === 'number' ? f.contribution : 0;
-      }),
-    };
-
-    const canvas = document.getElementById('riskFeaturesChart');
-    if (canvas && featureData.labels.length > 0) {
-      const ctx = canvas.getContext('2d');
-      new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: featureData.labels,
-          datasets: [{
-            label: 'Feature Contribution',
-            data: featureData.values,
-            backgroundColor: '#58a6ff',
-            borderRadius: 4,
-            borderSkipped: false,
-            barThickness: 14,
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: function(ctx) {
-                  return ' Weight: ' + ctx.parsed.x.toFixed(3);
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              grid: { color: '#21262d' },
-              ticks: { font: { family: 'ui-monospace, monospace', size: 11 }, color: '#8b949e' }
-            },
-            y: {
-              grid: { display: false },
-              ticks: { font: { family: 'ui-monospace, monospace', size: 12 }, color: '#f0f6fc' }
-            }
-          }
+    // Dynamic scale verification & client-side responsiveness for Model 1 chart
+    const chart = document.getElementById('model1-contrib-chart');
+    if (chart) {
+      const rows = chart.querySelectorAll('.vouch-contrib-row');
+      let maxVal = 0.001;
+      rows.forEach(function(row) {
+        const val = parseFloat(row.getAttribute('data-contribution')) || 0;
+        if (val > maxVal) maxVal = val;
+      });
+      rows.forEach(function(row) {
+        const val = parseFloat(row.getAttribute('data-contribution')) || 0;
+        const fill = row.querySelector('.vouch-contrib-bar');
+        if (fill && maxVal > 0) {
+          fill.style.width = Math.min(Math.round((val / maxVal) * 100), 100) + '%';
         }
       });
     }

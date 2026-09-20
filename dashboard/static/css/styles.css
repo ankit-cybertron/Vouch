@@ -131,10 +131,44 @@ a:hover {
   text-decoration: none;
   font-weight: 700;
   font-size: 16px;
+  flex-shrink: 0;
 }
 .gh-brand:hover {
   text-decoration: none;
   color: var(--color-accent-fg);
+}
+.gh-brand-logo {
+  height: 38px;
+  width: auto;
+  max-width: 170px;
+  display: block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  overflow: visible;
+  transition: transform 0.15s ease;
+}
+.gh-brand:hover .gh-brand-logo {
+  transform: scale(1.02);
+}
+.gh-brand-logo .vouch-logo-bg {
+  display: none;
+}
+.gh-brand-logo .vouch-logo-letters {
+  fill: var(--color-fg-default, #fdfcfd);
+  stroke: none;
+  transition: fill 0.15s ease;
+}
+.gh-brand-logo .vouch-logo-dot {
+  fill: #3fb950;
+  stroke: none;
+}
+html[data-theme="light"] .gh-brand-logo .vouch-logo-letters {
+  fill: #1f2328;
+  stroke: none;
+}
+html[data-theme="light"] .gh-brand-logo .vouch-logo-dot {
+  fill: #1a7f37;
+  stroke: none;
 }
 .gh-brand-icon {
   color: var(--color-success-fg);
@@ -211,6 +245,33 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-default);
+  background-color: var(--color-canvas-subtle);
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
+}
+.theme-toggle-btn:hover {
+  color: var(--color-fg-default);
+  background-color: var(--color-canvas-default);
+  border-color: var(--color-accent-emphasis);
+}
+.theme-toggle-btn svg {
+  transition: transform 0.2s ease;
+}
+.theme-toggle-btn:hover svg {
+  transform: rotate(15deg);
 }
 
 .status-dot {
@@ -706,6 +767,7 @@ a:hover {
 /* Breakdown bar fills */
 .breakdown-bar-change { background-color: var(--color-danger-fg) !important; }
 .breakdown-bar-confidence { background-color: var(--color-success-fg) !important; }
+.breakdown-bar-attention { background-color: var(--color-attention-fg) !important; }
 
 /* Risk indicator typography & badge utilities */
 .risk-color-high, .risk-color-danger { color: var(--color-danger-fg) !important; }
@@ -1872,6 +1934,10 @@ a:hover {
   .gh-brand-name {
     font-size: 15px;
   }
+  .gh-brand-logo {
+    height: 30px;
+    max-width: 140px;
+  }
   .gh-brand .gh-label {
     display: none; /* Keep brand tidy on 320px–375px screens */
   }
@@ -2815,6 +2881,7 @@ a:hover {
 }
 
 .search-input-group {
+  position: relative;
   display: flex;
   align-items: center;
   max-width: 480px;
@@ -3477,4 +3544,407 @@ a:hover {
   background: var(--color-border-muted);
   color: var(--color-fg-muted);
 }
+
+/* ── Metric Info Tooltip & Popover ─────────────────────────── */
+.vouch-info-tooltip-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: help;
+}
+
+.vouch-info-icon {
+  color: var(--color-fg-muted);
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  vertical-align: middle;
+}
+
+.vouch-info-tooltip-trigger:hover .vouch-info-icon,
+.vouch-info-tooltip-trigger:focus .vouch-info-icon {
+  color: var(--color-accent-fg);
+  opacity: 1;
+}
+
+.vouch-popover-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 270px;
+  background: var(--color-card-bg, #161b22);
+  color: var(--color-fg-default, #f0f6fc);
+  border: 1px solid var(--color-border-default, #30363d);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+  z-index: 1000;
+  font-weight: 400;
+  text-align: left;
+}
+
+.vouch-popover-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 20px;
+  border-width: 6px;
+  border-style: solid;
+  border-color: var(--color-border-default, #30363d) transparent transparent transparent;
+}
+
+.vouch-info-tooltip-trigger:hover .vouch-popover-tooltip,
+.vouch-info-tooltip-trigger:focus-within .vouch-popover-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.vouch-popover-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-fg-default);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vouch-popover-formula {
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  margin: 5px 0 6px;
+  color: var(--color-accent-fg);
+}
+
+.vouch-popover-body {
+  color: var(--color-fg-muted);
+  margin-bottom: 6px;
+}
+
+.vouch-popover-meta {
+  font-size: 11px;
+  color: var(--color-fg-subtle);
+  border-top: 1px solid var(--color-border-muted);
+  padding-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Video Showcase Section ────────────────────────────────── */
+.vouch-video-card {
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-border-default);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+[data-theme="dark"] .vouch-video-card {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.vouch-video-card:hover {
+  border-color: var(--color-border-muted);
+}
+
+.vouch-video-player-wrapper {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%; /* 16:9 Aspect Ratio */
+  background: #000000;
+}
+
+.vouch-video-iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.vouch-video-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--color-canvas-subtle);
+  border-top: 1px solid var(--color-border-default);
+}
+
+.vouch-video-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vouch-video-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-canvas-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+}
+
+.vouch-youtube-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none !important;
+}
+
+.vouch-youtube-link-btn:hover {
+  border-color: #ff0000;
+  color: var(--color-fg-default);
+}
+
+/* ── Smooth Scrolling Anchor Support ───────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── Hero Video Tutorial Button ────────────────────────────── */
+.vouch-btn-video-tutorial {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none !important;
+  transition: all 0.15s ease;
+}
+
+.vouch-btn-video-tutorial svg {
+  transition: transform 0.15s ease;
+}
+
+.vouch-btn-video-tutorial:hover svg {
+  transform: scale(1.15);
+}
+
+.vouch-btn-video-tutorial:hover {
+  border-color: rgba(255, 0, 0, 0.45) !important;
+  color: var(--color-fg-default) !important;
+  background-color: var(--color-canvas-subtle) !important;
+}
+
+/* ── Model 1 Horizontal Contribution Bar Chart ────────────── */
+.vouch-contrib-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.vouch-contrib-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 65px;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+  position: relative;
+}
+
+.vouch-contrib-row:hover {
+  background-color: var(--color-canvas-subtle);
+}
+
+.vouch-contrib-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.vouch-contrib-display-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.1px;
+}
+
+.vouch-contrib-raw-key {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+.vouch-contrib-bar-wrap {
+  width: 100%;
+  position: relative;
+}
+
+.vouch-contrib-track {
+  width: 100%;
+  height: 10px;
+  background-color: var(--color-canvas-subtle, #161b22);
+  border: 1px solid var(--color-border-muted, #30363d);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.vouch-contrib-bar {
+  height: 100%;
+  background-color: #38bdf8;
+  border-radius: 5px;
+  min-width: 2px;
+  transition: width 0.3s ease, filter 0.15s ease, background-color 0.15s ease;
+}
+
+.vouch-contrib-row:hover .vouch-contrib-bar {
+  filter: brightness(1.18);
+}
+
+.vouch-contrib-val {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+}
+
+@media (max-width: 650px) {
+  .vouch-contrib-row {
+    grid-template-columns: 140px 1fr 50px;
+    gap: 10px;
+    padding: 4px 6px;
+  }
+  .vouch-contrib-display-name {
+    font-size: 12px;
+  }
+  .vouch-contrib-raw-key {
+    font-size: 10px;
+  }
+  .vouch-contrib-val {
+    font-size: 12px;
+  }
+}
+
+/* ── Compact Sidebar Risk Breakdown Component ──────────────── */
+.vouch-sidebar-risk-card {
+  padding: 0;
+}
+
+.vouch-sidebar-risk-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 14px;
+}
+
+.vouch-sidebar-metric-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.vouch-sidebar-metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.vouch-sidebar-metric-name {
+  color: var(--color-fg-default);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.vouch-sidebar-metric-val {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.vouch-sidebar-metric-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background-color: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  overflow: hidden;
+  position: relative;
+}
+
+.vouch-sidebar-metric-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.vouch-sidebar-metric-bar.breakdown-bar-change {
+  background-color: var(--color-danger-fg, #f85149);
+}
+
+.vouch-sidebar-metric-bar.breakdown-bar-attention {
+  background-color: var(--color-attention-fg, #d29922);
+}
+
+.vouch-sidebar-metric-bar.breakdown-bar-confidence {
+  background-color: var(--color-success-fg, #3fb950);
+}
+
+.vouch-sidebar-metric-bar.risk-bg-high {
+  background-color: var(--color-danger-fg, #f85149);
+}
+
+.vouch-sidebar-metric-bar.risk-bg-medium {
+  background-color: var(--color-attention-fg, #d29922);
+}
+
+.vouch-sidebar-metric-bar.risk-bg-low {
+  background-color: var(--color-success-fg, #3fb950);
+}
+
+.risk-color-high {
+  color: var(--color-danger-fg, #f85149) !important;
+}
+
+.risk-color-medium {
+  color: var(--color-attention-fg, #d29922) !important;
+}
+
+.risk-color-low {
+  color: var(--color-success-fg, #3fb950) !important;
+}
+
+
+
 

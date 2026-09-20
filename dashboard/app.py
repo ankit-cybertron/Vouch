@@ -1362,6 +1362,11 @@ def landing_page():
     computed_oauth_callback_uri = _oauth_callback_uri()
     computed_app_callback_uri = _app_setup_callback_uri()
 
+    raw_yt = os.environ.get("YOUTUBE_DEMO_URL", "").strip() or "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    vid_match = re.search(r"(?:v=|\/embed\/|youtu\.be\/|\/v\/|watch\?v=)([a-zA-Z0-9_-]{11})", raw_yt)
+    youtube_embed_url = f"https://www.youtube.com/embed/{vid_match.group(1)}" if vid_match else raw_yt
+    youtube_url = raw_yt
+
     return render_template(
         "landing.html",
         sample_repos=sample_repos,
@@ -1372,6 +1377,8 @@ def landing_page():
         app_install_url=app_install_url,
         computed_oauth_callback_uri=computed_oauth_callback_uri,
         computed_app_callback_uri=computed_app_callback_uri,
+        youtube_url=youtube_url,
+        youtube_embed_url=youtube_embed_url,
     )
 
 
@@ -2342,6 +2349,7 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
 
         reviewer_rows.append({
             "login": rev,
+            "avatar_url": f"https://github.com/{rev}.png",
             "prs_reviewed": count,
             "avg_duration_min": avg_dur_min,
             "avg_depth": avg_depth,
