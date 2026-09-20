@@ -138,9 +138,9 @@ a:hover {
   color: var(--color-accent-fg);
 }
 .gh-brand-logo {
-  height: 28px;
+  height: 38px;
   width: auto;
-  max-width: 130px;
+  max-width: 170px;
   display: block;
   vertical-align: middle;
   flex-shrink: 0;
@@ -1908,7 +1908,8 @@ html[data-theme="light"] .gh-brand-logo .vouch-logo-dot {
     font-size: 15px;
   }
   .gh-brand-logo {
-    height: 24px;
+    height: 30px;
+    max-width: 140px;
   }
   .gh-brand .gh-label {
     display: none; /* Keep brand tidy on 320px–375px screens */
@@ -3696,5 +3697,226 @@ html[data-theme="light"] .gh-brand-logo .vouch-logo-dot {
   border-color: #ff0000;
   color: var(--color-fg-default);
 }
+
+/* ── Smooth Scrolling Anchor Support ───────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── Hero Video Tutorial Button ────────────────────────────── */
+.vouch-btn-video-tutorial {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none !important;
+  transition: all 0.15s ease;
+}
+
+.vouch-btn-video-tutorial svg {
+  transition: transform 0.15s ease;
+}
+
+.vouch-btn-video-tutorial:hover svg {
+  transform: scale(1.15);
+}
+
+.vouch-btn-video-tutorial:hover {
+  border-color: rgba(255, 0, 0, 0.45) !important;
+  color: var(--color-fg-default) !important;
+  background-color: var(--color-canvas-subtle) !important;
+}
+
+/* ── Model 1 Horizontal Contribution Bar Chart ────────────── */
+.vouch-contrib-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.vouch-contrib-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 65px;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+  position: relative;
+}
+
+.vouch-contrib-row:hover {
+  background-color: var(--color-canvas-subtle);
+}
+
+.vouch-contrib-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.vouch-contrib-display-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.1px;
+}
+
+.vouch-contrib-raw-key {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+.vouch-contrib-bar-wrap {
+  width: 100%;
+  position: relative;
+}
+
+.vouch-contrib-track {
+  width: 100%;
+  height: 10px;
+  background-color: var(--color-canvas-subtle, #161b22);
+  border: 1px solid var(--color-border-muted, #30363d);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.vouch-contrib-bar {
+  height: 100%;
+  background-color: #38bdf8;
+  border-radius: 5px;
+  min-width: 2px;
+  transition: width 0.3s ease, filter 0.15s ease, background-color 0.15s ease;
+}
+
+.vouch-contrib-row:hover .vouch-contrib-bar {
+  filter: brightness(1.18);
+}
+
+.vouch-contrib-val {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg-default);
+}
+
+@media (max-width: 650px) {
+  .vouch-contrib-row {
+    grid-template-columns: 140px 1fr 50px;
+    gap: 10px;
+    padding: 4px 6px;
+  }
+  .vouch-contrib-display-name {
+    font-size: 12px;
+  }
+  .vouch-contrib-raw-key {
+    font-size: 10px;
+  }
+  .vouch-contrib-val {
+    font-size: 12px;
+  }
+}
+
+/* ── Compact Sidebar Risk Breakdown Component ──────────────── */
+.vouch-sidebar-risk-card {
+  padding: 0;
+}
+
+.vouch-sidebar-risk-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 14px;
+}
+
+.vouch-sidebar-metric-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.vouch-sidebar-metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.vouch-sidebar-metric-name {
+  color: var(--color-fg-default);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.vouch-sidebar-metric-val {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.vouch-sidebar-metric-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background-color: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-muted);
+  overflow: hidden;
+  position: relative;
+}
+
+.vouch-sidebar-metric-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.vouch-sidebar-metric-bar.breakdown-bar-change {
+  background-color: var(--color-danger-fg, #f85149);
+}
+
+.vouch-sidebar-metric-bar.breakdown-bar-attention {
+  background-color: var(--color-attention-fg, #d29922);
+}
+
+.vouch-sidebar-metric-bar.breakdown-bar-confidence {
+  background-color: var(--color-success-fg, #3fb950);
+}
+
+.vouch-sidebar-metric-bar.risk-bg-high {
+  background-color: var(--color-danger-fg, #f85149);
+}
+
+.vouch-sidebar-metric-bar.risk-bg-medium {
+  background-color: var(--color-attention-fg, #d29922);
+}
+
+.vouch-sidebar-metric-bar.risk-bg-low {
+  background-color: var(--color-success-fg, #3fb950);
+}
+
+.risk-color-high {
+  color: var(--color-danger-fg, #f85149) !important;
+}
+
+.risk-color-medium {
+  color: var(--color-attention-fg, #d29922) !important;
+}
+
+.risk-color-low {
+  color: var(--color-success-fg, #3fb950) !important;
+}
+
+
 
 

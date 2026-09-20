@@ -583,10 +583,12 @@
       });
     }
 
-    // Discover Popular: reveal all database popular repos
+    // Discover Popular: toggle between curated popular repos and initial Vouch view
     function handleDiscoverClick(btn) {
       const popularCards = cards.filter(c => c.getAttribute('data-is-initial') !== 'true');
-      if (popularCards.length > 0) {
+      if (currentView === 'popular') {
+        applyView('initial');
+      } else if (popularCards.length > 0) {
         applyView('popular');
       } else {
         // If database had no popular repos pre-loaded, fetch via backend
