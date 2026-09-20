@@ -57,3 +57,4 @@ jobs:
           region: ap-south-1
           version_label: vouch-${{ github.event.workflow_run.head_sha }}
           deployment_package: deploy.zip
+          use_existing_version_if_available: true

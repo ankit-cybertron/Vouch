@@ -28,7 +28,7 @@ import pandas as pd
 import torch
 from sklearn.metrics import classification_report, f1_score
 from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -112,21 +112,22 @@ def train(
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    training_args = TrainingArguments(
-        output_dir=str(out_path / "checkpoints"),
-        num_train_epochs=epochs,
-        per_device_train_batch_size=batch_size,
-        per_device_eval_batch_size=batch_size,
-        learning_rate=lr,
-        weight_decay=0.01,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
-        metric_for_best_model="f1_weighted",
-        logging_dir=str(out_path / "logs"),
-        logging_steps=50,
-        report_to="none",
-    )
+    training_kwargs = {
+        "output_dir": str(out_path / "checkpoints"),
+        "num_train_epochs": epochs,
+        "per_device_train_batch_size": batch_size,
+        "per_device_eval_batch_size": batch_size,
+        "learning_rate": lr,
+        "weight_decay": 0.01,
+        "save_strategy": "epoch",
+        "load_best_model_at_end": True,
+        "metric_for_best_model": "f1_weighted",
+        "logging_steps": 50,
+        "report_to": "none",
+    }
+    eval_strategy_key = "eval_strategy" if hasattr(TrainingArguments, "eval_strategy") else "evaluation_strategy"
+    training_kwargs[eval_strategy_key] = "epoch"
+    training_args = TrainingArguments(**training_kwargs)
 
     trainer = Trainer(
         model=model,
