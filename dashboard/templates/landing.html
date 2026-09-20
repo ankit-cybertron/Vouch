@@ -18,7 +18,7 @@
         {% if app_version %}
         <span class="gh-version-badge" title="Commit: {{ app_version.commit_short }} ({{ app_version.branch }})">v{{ app_version.version }}</span>
         {% else %}
-        <span class="gh-version-badge">v2.1</span>
+        <span class="gh-version-badge">v2.2</span>
         {% endif %}
       </a>
       <div style="display:flex; align-items:center; gap:20px; font-size:13.5px; font-weight:500;">
@@ -28,9 +28,9 @@
       </div>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
-      <button type="button" class="gh-btn gh-btn-sm theme-toggle-btn" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme (Light / Dark)" style="padding:5px 10px; display:inline-flex; align-items:center; justify-content:center;">
-        <svg class="sun-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="display:none;"><path d="M8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm5.25-2.5a.75.75 0 0 1 .75-.75h1a.75.75 0 0 1 0 1.5h-1a.75.75 0 0 1-.75-.75Zm-12 0a.75.75 0 0 1 .75-.75h1a.75.75 0 0 1 0 1.5h-1a.75.75 0 0 1-.75-.75Zm9.192-4.243a.75.75 0 0 1 1.06 0l.708.707a.75.75 0 0 1-1.061 1.061l-.707-.707a.75.75 0 0 1 0-1.061ZM2.55 12.394a.75.75 0 0 1 1.06 0l.708.707a.75.75 0 0 1-1.061 1.061l-.707-.707a.75.75 0 0 1 0-1.061Zm9.899 4.243a.75.75 0 0 1 0 1.06l-.707.708a.75.75 0 0 1-1.061-1.061l.707-.707a.75.75 0 0 1 1.061 0ZM3.257 3.257a.75.75 0 0 1 0 1.06l-.707.708A.75.75 0 1 1 1.489 3.964l.707-.707a.75.75 0 0 1 1.061 0ZM8 0a.75.75 0 0 1 .75.75v1a.75.75 0 0 1-1.5 0v-1A.75.75 0 0 1 8 0Zm0 13.25a.75.75 0 0 1 .75.75v1a.75.75 0 0 1-1.5 0v-1a.75.75 0 0 1 .75-.75Z"></path></svg>
-        <svg class="moon-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.75.75 0 0 1 .785.175 7 7 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Z"></path></svg>
+      <button type="button" class="theme-toggle-btn" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme (Light / Dark)">
+        <svg class="sun-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none;"><path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM8 13a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13ZM2.343 2.343a.75.75 0 0 1 1.061 0l1.06 1.061a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.061ZM11.536 11.536a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 0-1.061ZM0 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 8ZM13 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 13 8ZM2.343 13.657a.75.75 0 0 1 0-1.06l1.06-1.061a.75.75 0 1 1 1.061 1.06l-1.06 1.061a.75.75 0 0 1-1.061 0ZM11.536 4.464a.75.75 0 0 1 0-1.06l1.061-1.061a.75.75 0 0 1 1.06 1.06l-1.06 1.061a.75.75 0 0 1-1.061 0Z"></path></svg>
+        <svg class="moon-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.75.75 0 0 1 .785.175 7 7 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Z"></path></svg>
       </button>
 
     </div>
@@ -586,8 +586,8 @@
       }
 
       setTimeout(() => {
-        try { sessionStorage.removeItem('vouch_repos_view'); } catch (e) {}
-        window.location.href = '/repos';
+        try { sessionStorage.setItem('vouch_repos_view', 'cleared'); } catch (e) {}
+        window.location.href = '/repos?from_auth=1';
       }, 700);
     } catch (ex) {
       if (err) {

@@ -398,6 +398,15 @@
     if (modalLoadingBanner) modalLoadingBanner.style.display = 'none';
   }
 
+  window.openFetchModal = openFetchModal;
+
+  const heroOpenModalBtn = document.getElementById('hero-open-fetch-btn');
+  if (heroOpenModalBtn) {
+    heroOpenModalBtn.addEventListener('click', function () {
+      openFetchModal();
+    });
+  }
+
   if (openModalBtn) {
     openModalBtn.addEventListener('click', function () {
       openFetchModal();
@@ -493,6 +502,14 @@
     });
   }
 
+  // Dynamic data-bar-width support
+  function applyDataBarWidths() {
+    document.querySelectorAll('[data-bar-width]').forEach(function (el) {
+      el.style.width = el.getAttribute('data-bar-width');
+    });
+  }
+  applyDataBarWidths();
+
   // Quick repository chips on Repos page
   document.querySelectorAll('.quick-repo-chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
@@ -506,27 +523,36 @@
   // ─── Repositories Catalog View Controller (Initial / Popular / Cleared) ───
   function initReposView() {
     const grid = document.getElementById('repo-grid');
-    if (!grid) return;
+    const emptyState = document.getElementById('repo-empty-state');
+    if (!grid && !emptyState) return;
 
+    const topSection = document.getElementById('repos-top-section');
     const cards = Array.from(document.querySelectorAll('.gh-repo-card'));
     const badge = document.getElementById('repos-total-badge');
     const clearAllBtn = document.getElementById('clear-all-repos-btn');
     const discoverPopularBtn = document.getElementById('discover-popular-btn');
-    const emptyState = document.getElementById('repo-empty-state');
     const emptyDiscoverBtn = document.getElementById('empty-discover-popular-btn');
     const emptyRestoreInitialBtn = document.getElementById('empty-restore-initial-btn');
     const searchInput = document.getElementById('repo-search-input');
+    const noMatchesBanner = document.getElementById('repo-no-matches');
 
-    // If redirected from auth or URL specifies view=initial, reset saved view
+    // If redirected from auth or URL specifies view=cleared, set view to cleared
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('from_auth') || urlParams.get('view') === 'initial') {
-      sessionStorage.removeItem('vouch_repos_view');
+    if (urlParams.has('from_auth')) {
+      sessionStorage.setItem('vouch_repos_view', 'cleared');
     }
 
-    let currentView = sessionStorage.getItem('vouch_repos_view') || 'initial';
+    // Default view is 'cleared' on fresh login / initial visit (no cards displayed)
+    let currentView = sessionStorage.getItem('vouch_repos_view') || 'cleared';
     if (urlParams.get('view') === 'popular' || urlParams.get('view') === 'all') {
       currentView = 'popular';
       sessionStorage.setItem('vouch_repos_view', 'popular');
+    } else if (urlParams.get('view') === 'initial') {
+      currentView = 'initial';
+      sessionStorage.setItem('vouch_repos_view', 'initial');
+    } else if (urlParams.get('view') === 'cleared') {
+      currentView = 'cleared';
+      sessionStorage.setItem('vouch_repos_view', 'cleared');
     }
 
     function applyView(view) {
@@ -534,15 +560,23 @@
       sessionStorage.setItem('vouch_repos_view', view);
 
       if (view === 'cleared') {
+        // HIDE top header and subnav so only the clean hero section is visible!
+        if (topSection) topSection.style.display = 'none';
+        if (grid) grid.style.display = 'none';
         cards.forEach(c => c.style.display = 'none');
         if (emptyState) emptyState.style.display = 'block';
         if (clearAllBtn) clearAllBtn.style.display = 'none';
         if (badge) badge.textContent = '0';
+        if (noMatchesBanner) noMatchesBanner.style.display = 'none';
         return;
       }
 
+      // Repos are visible: show top section and grid, hide empty state
+      if (topSection) topSection.style.display = 'block';
+      if (grid) grid.style.display = 'grid';
       if (emptyState) emptyState.style.display = 'none';
       if (clearAllBtn) clearAllBtn.style.display = 'inline-flex';
+      if (noMatchesBanner) noMatchesBanner.style.display = 'none';
 
       let visibleCount = 0;
       if (view === 'popular') {
@@ -576,7 +610,7 @@
     // Apply view on load
     applyView(currentView);
 
-    // Clear All button: removes cards from screen only (NEVER touches backend)
+    // Clear All button: removes cards from screen and hides top section
     if (clearAllBtn) {
       clearAllBtn.addEventListener('click', function () {
         applyView('cleared');
@@ -587,7 +621,7 @@
     function handleDiscoverClick(btn) {
       const popularCards = cards.filter(c => c.getAttribute('data-is-initial') !== 'true');
       if (currentView === 'popular') {
-        applyView('initial');
+        applyView('cleared');
       } else if (popularCards.length > 0) {
         applyView('popular');
       } else {
@@ -612,16 +646,16 @@
       });
     }
 
-    // Client-side search input
+    // Client-side search input in top toolbar
     if (searchInput) {
       searchInput.addEventListener('input', function () {
         const q = this.value.trim().toLowerCase();
         if (!q) {
           applyView(currentView);
+          if (noMatchesBanner) noMatchesBanner.style.display = 'none';
           return;
         }
 
-        if (emptyState) emptyState.style.display = 'none';
         let matchCount = 0;
         cards.forEach(c => {
           const name = (c.getAttribute('data-name') || '').toLowerCase();
@@ -632,8 +666,8 @@
         });
 
         if (badge) badge.textContent = matchCount;
-        if (matchCount === 0 && emptyState) {
-          emptyState.style.display = 'block';
+        if (noMatchesBanner) {
+          noMatchesBanner.style.display = matchCount === 0 ? 'block' : 'none';
         }
       });
     }
@@ -717,7 +751,9 @@
         }
         return;
       }
-      window.location.reload();
+
+      sessionStorage.setItem('vouch_repos_view', 'popular');
+      window.location.href = '/repos?view=popular';
     } catch (err) {
       alert('Network error: ' + err.message);
       if (btn) {

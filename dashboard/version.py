@@ -11,7 +11,7 @@ import os
 import subprocess
 from functools import lru_cache
 
-__version__ = "2.1"
+__version__ = "2.2"
 VERSION_NAME = "Bharat Builds Edition"
 
 

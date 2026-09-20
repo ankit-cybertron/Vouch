@@ -247,6 +247,33 @@ html[data-theme="light"] .gh-brand-logo .vouch-logo-dot {
   gap: 8px;
 }
 
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-default);
+  background-color: var(--color-canvas-subtle);
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
+}
+.theme-toggle-btn:hover {
+  color: var(--color-fg-default);
+  background-color: var(--color-canvas-default);
+  border-color: var(--color-accent-emphasis);
+}
+.theme-toggle-btn svg {
+  transition: transform 0.2s ease;
+}
+.theme-toggle-btn:hover svg {
+  transform: rotate(15deg);
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -2854,6 +2881,7 @@ html[data-theme="light"] .gh-brand-logo .vouch-logo-dot {
 }
 
 .search-input-group {
+  position: relative;
   display: flex;
   align-items: center;
   max-width: 480px;
