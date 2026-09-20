@@ -3482,10 +3482,17 @@ def api_explain_groq():
         })
     else:
         err_str = result.get("error", "Failed to generate explanation from Groq.")
+        requires_key = bool(
+            result.get("requires_key")
+            or "not configured" in err_str.lower()
+            or "invalid" in err_str.lower()
+            or "enter a" in err_str.lower()
+            or "failed" in err_str.lower()
+        )
         return jsonify({
             "success": False,
             "error": err_str,
-            "requires_key": "not configured" in err_str.lower() or "invalid" in err_str.lower(),
+            "requires_key": requires_key,
         }), 400
 
 

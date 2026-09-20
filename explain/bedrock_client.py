@@ -76,12 +76,36 @@ def generate_explanation(
         )
         body = json.loads(response["body"].read())
         text = body["content"][0]["text"].strip()
-        logger.info("Explanation for %s: %s", pr_key, text)
-        return text
-
+        if text and text != "(disconnected)":
+            logger.info("Explanation for %s: %s", pr_key, text)
+            return text
     except Exception as exc:
-        logger.error("Bedrock call failed for %s: %s", pr_key, exc)
-        return "(disconnected)"
+        logger.warning("Bedrock call failed for %s: %s; cascading to Groq fallback", pr_key, exc)
+
+    # Bedrock disconnected / failed: automatically cascade to Groq (GROQ_API_KEY -> GROQ_API_KEY_backup)
+    try:
+        from explain.groq_client import generate_groq_explanation
+        res = generate_groq_explanation(
+            pr_key=pr_key,
+            change_risk=change_risk,
+            review_confidence=review_confidence,
+            residual_risk=residual_risk,
+            top_risk_features=top_risk_features,
+            depth_score=depth_score,
+            attention_state=attention_state,
+            review_duration_seconds=review_duration_seconds,
+            diff_lines=diff_lines,
+            reviewer=reviewer,
+            consecutive_reviews=consecutive_reviews,
+            file_context=file_context,
+        )
+        if res.get("success") and res.get("explanation"):
+            logger.info("Groq explanation fallback succeeded for %s: %s", pr_key, res["explanation"])
+            return res["explanation"]
+    except Exception as groq_exc:
+        logger.error("Groq fallback also failed for %s: %s", pr_key, groq_exc)
+
+    return "(disconnected)"
 
 
 def _deterministic_reviewer_fallback(reviewer_data: dict) -> str:
