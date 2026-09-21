@@ -38,6 +38,6 @@ jobs:
           SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
           RISK_MODEL_ENDPOINT: ${{ vars.RISK_MODEL_ENDPOINT || 'vouch-risk-model-prod' }}
           DEPTH_MODEL_ENDPOINT: ${{ vars.DEPTH_MODEL_ENDPOINT || 'vouch-depth-model-prod' }}
-          ECR_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          ECR_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID || '654157459447' }}
         run: |
           python scripts/deploy_sagemaker.py

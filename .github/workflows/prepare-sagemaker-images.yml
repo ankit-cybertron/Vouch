@@ -37,7 +37,7 @@ jobs:
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
-      ECR_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      ECR_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID || '654157459447' }}
       # Source DLC registries (region-specific for ap-south-1)
       XGB_SRC_REGISTRY: "720646828776.dkr.ecr.ap-south-1.amazonaws.com"
       PYTORCH_SRC_REGISTRY: "763104351884.dkr.ecr.ap-south-1.amazonaws.com"
