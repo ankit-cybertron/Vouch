@@ -1,26 +1,18 @@
 name: Deploy Models to Amazon SageMaker
 
 on:
-  workflow_run:
-    workflows: ["Tests"]
-    types:
-      - completed
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   deploy-sagemaker:
     name: Deploy SageMaker Models
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
-      - name: Checkout tested commit
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,5 +38,6 @@ jobs:
           SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
           RISK_MODEL_ENDPOINT: ${{ vars.RISK_MODEL_ENDPOINT || 'vouch-risk-model-prod' }}
           DEPTH_MODEL_ENDPOINT: ${{ vars.DEPTH_MODEL_ENDPOINT || 'vouch-depth-model-prod' }}
+          ECR_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
         run: |
           python scripts/deploy_sagemaker.py

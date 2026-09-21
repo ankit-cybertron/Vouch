@@ -1,0 +1,176 @@
+name: Prepare SageMaker Inference Images
+
+# Prepares the SageMaker inference container images used by Vouch.
+# This workflow mirrors the required official AWS SageMaker images
+# into Vouch's private ECR repositories.
+# Manual dispatch only.
+#
+# This workflow does NOT deploy SageMaker endpoints.
+# Endpoint deployment is handled separately by deploy-sagemaker.yml.
+#
+# Images mirrored:
+#   720646828776.dkr.ecr.ap-south-1.amazonaws.com/sagemaker-xgboost:<xgb_tag>
+#     -> 654157459447.dkr.ecr.ap-south-1.amazonaws.com/vouch/sagemaker-xgboost:<xgb_tag>
+#
+#   763104351884.dkr.ecr.ap-south-1.amazonaws.com/pytorch-inference:<pytorch_tag>
+#     -> 654157459447.dkr.ecr.ap-south-1.amazonaws.com/vouch/pytorch-inference:<pytorch_tag>
+
+on:
+  workflow_dispatch:
+    inputs:
+      xgb_tag:
+        description: "XGBoost image tag to mirror"
+        default: "3.0-5"
+        required: true
+      pytorch_tag:
+        description: "PyTorch inference image tag to mirror"
+        default: "2.3.0-cpu-py311"
+        required: true
+
+jobs:
+  mirror:
+    name: Prepare SageMaker Images
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+      ECR_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      # Source DLC registries (region-specific for ap-south-1)
+      XGB_SRC_REGISTRY: "720646828776.dkr.ecr.ap-south-1.amazonaws.com"
+      PYTORCH_SRC_REGISTRY: "763104351884.dkr.ecr.ap-south-1.amazonaws.com"
+      XGB_TAG: ${{ github.event.inputs.xgb_tag || '3.0-5' }}
+      PYTORCH_TAG: ${{ github.event.inputs.pytorch_tag || '2.3.0-cpu-py311' }}
+
+    steps:
+      - name: Validate required variables
+        run: |
+          set -euo pipefail
+          if [ -z "$ECR_ACCOUNT_ID" ]; then
+            echo "::error::vars.AWS_ACCOUNT_ID is not set. Configure it in GitHub repository variables."
+            exit 1
+          fi
+          echo "ECR account ID: $ECR_ACCOUNT_ID"
+          echo "Region: $AWS_REGION"
+          echo "XGBoost tag: $XGB_TAG"
+          echo "PyTorch tag: $PYTORCH_TAG"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      # Ensure private ECR repositories exist (idempotent)
+      - name: Create private ECR repositories (idempotent)
+        run: |
+          set -euo pipefail
+
+          for repo in vouch/sagemaker-xgboost vouch/pytorch-inference; do
+            echo "Ensuring repository exists: $repo"
+            if aws ecr describe-repositories \
+              --repository-names "$repo" \
+              --region "$AWS_REGION" \
+              --registry-id "$ECR_ACCOUNT_ID" > /dev/null 2>&1; then
+              echo "Repository already exists: $repo"
+            else
+              echo "Creating repository: $repo"
+              aws ecr create-repository \
+                --repository-name "$repo" \
+                --region "$AWS_REGION" \
+                --image-scanning-configuration scanOnPush=true \
+                --image-tag-mutability MUTABLE \
+              || echo "Repository creation tolerated (may already exist): $repo"
+            fi
+          done
+
+      # Authenticate Docker to both source registries and private ECR
+      - name: Authenticate Docker to source and private ECR registries
+        run: |
+          set -euo pipefail
+          PRIVATE_REGISTRY="${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          echo "=== Authenticating to private ECR: $PRIVATE_REGISTRY ==="
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$PRIVATE_REGISTRY"
+
+          echo "=== Authenticating to XGBoost source registry: $XGB_SRC_REGISTRY ==="
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$XGB_SRC_REGISTRY"
+
+          echo "=== Authenticating to PyTorch source registry: $PYTORCH_SRC_REGISTRY ==="
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$PYTORCH_SRC_REGISTRY"
+
+      # Mirror XGBoost image
+      - name: Mirror XGBoost image
+        run: |
+          set -euo pipefail
+          PRIVATE_REGISTRY="${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          SRC="${XGB_SRC_REGISTRY}/sagemaker-xgboost:${XGB_TAG}"
+          DST="${PRIVATE_REGISTRY}/vouch/sagemaker-xgboost:${XGB_TAG}"
+
+          echo "Pulling: $SRC"
+          docker pull "$SRC"
+
+          echo "Tagging: $DST"
+          docker tag "$SRC" "$DST"
+
+          echo "Pushing: $DST"
+          docker push "$DST"
+
+          echo "XGBoost image mirrored successfully: $DST"
+
+      # Mirror PyTorch image
+      - name: Mirror PyTorch image
+        run: |
+          set -euo pipefail
+          PRIVATE_REGISTRY="${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          SRC="${PYTORCH_SRC_REGISTRY}/pytorch-inference:${PYTORCH_TAG}"
+          DST="${PRIVATE_REGISTRY}/vouch/pytorch-inference:${PYTORCH_TAG}"
+
+          echo "Pulling: $SRC"
+          docker pull "$SRC"
+
+          echo "Tagging: $DST"
+          docker tag "$SRC" "$DST"
+
+          echo "Pushing: $DST"
+          docker push "$DST"
+
+          echo "PyTorch image mirrored successfully: $DST"
+
+      # Confirm images exist in private ECR
+      - name: Verify images in private ECR
+        run: |
+          set -euo pipefail
+          PRIVATE_REGISTRY="${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          echo "=== Verifying XGBoost image ==="
+          aws ecr describe-images \
+            --repository-name vouch/sagemaker-xgboost \
+            --image-ids imageTag="$XGB_TAG" \
+            --region "$AWS_REGION" \
+            --registry-id "$ECR_ACCOUNT_ID" \
+            --query 'imageDetails[0].{digest:imageDigest,pushed:imagePushedAt,size:imageSizeInBytes}' \
+            --output table
+
+          echo "=== Verifying PyTorch image ==="
+          aws ecr describe-images \
+            --repository-name vouch/pytorch-inference \
+            --image-ids imageTag="$PYTORCH_TAG" \
+            --region "$AWS_REGION" \
+            --registry-id "$ECR_ACCOUNT_ID" \
+            --query 'imageDetails[0].{digest:imageDigest,pushed:imagePushedAt,size:imageSizeInBytes}' \
+            --output table
+
+          echo ""
+          echo "Both images verified in private ECR."
+          echo ""
+          echo "XGBoost URI:  ${PRIVATE_REGISTRY}/vouch/sagemaker-xgboost:${XGB_TAG}"
+          echo "PyTorch URI:  ${PRIVATE_REGISTRY}/vouch/pytorch-inference:${PYTORCH_TAG}"

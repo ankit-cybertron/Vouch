@@ -89,29 +89,42 @@ During the guided deployment prompt, supply:
 
 ## 4. Deploy SageMaker Model Endpoints
 
-For high-throughput enterprise deployments:
+SageMaker deployment is a **manual** two-step pipeline triggered from GitHub Actions.
+It is not part of the automatic CI/CD flow.
 
-### Model 1: Change Risk Model
-```bash
-cd models/risk
-tar -czvf model.tar.gz risk_model.json inference.py
-aws s3 cp model.tar.gz s3://vouch-raw-[account_id]-us-east-1/models/risk/model.tar.gz
+### Step 1 — Prepare inference images (once, or when updating image versions)
 
-python deploy_sagemaker.py \
-  --model-data s3://vouch-raw-[account_id]-us-east-1/models/risk/model.tar.gz \
-  --endpoint-name vouch-change-risk-endpoint
-```
+Go to **GitHub → ankit-cybertron/Vouch → Actions → Prepare SageMaker Inference Images → Run workflow**.
 
-### Model 2: Depth Scorer Model
-```bash
-cd models/depth
-tar -czvf model.tar.gz model.pt inference.py
-aws s3 cp model.tar.gz s3://vouch-raw-[account_id]-us-east-1/models/depth/model.tar.gz
+This mirrors the required AWS Deep Learning Container images into the project's private ECR:
 
-python deploy_sagemaker.py \
-  --model-data s3://vouch-raw-[account_id]-us-east-1/models/depth/model.tar.gz \
-  --endpoint-name vouch-depth-scorer-endpoint
-```
+| Source | Destination |
+|:---|:---|
+| `720646828776.dkr.ecr.ap-south-1.amazonaws.com/sagemaker-xgboost:3.0-5` | `654157459447.dkr.ecr.ap-south-1.amazonaws.com/vouch/sagemaker-xgboost:3.0-5` |
+| `763104351884.dkr.ecr.ap-south-1.amazonaws.com/pytorch-inference:2.3.0-cpu-py311` | `654157459447.dkr.ecr.ap-south-1.amazonaws.com/vouch/pytorch-inference:2.3.0-cpu-py311` |
+
+This step is idempotent — re-running it is safe.
+
+### Step 2 — Deploy model endpoints
+
+Go to **GitHub → ankit-cybertron/Vouch → Actions → Deploy Models to Amazon SageMaker → Run workflow**.
+
+The workflow runs `scripts/deploy_sagemaker.py`, which:
+1. Packages `models/risk/risk_model.json` + `models/risk/inference.py` into `risk_model.tar.gz`
+2. Packages `models/depth/model/` + `models/depth/inference.py` into `depth_model.tar.gz`
+3. Uploads artifacts to S3 (`SAGEMAKER_BUCKET`)
+4. Creates or updates endpoints `vouch-risk-model-prod` and `vouch-depth-model-prod`
+
+**Required GitHub secrets / vars:**
+
+| Name | Type | Value |
+|:---|:---|:---|
+| `AWS_ACCESS_KEY_ID` | Secret | IAM key for `vouch-github-actions` |
+| `AWS_SECRET_ACCESS_KEY` | Secret | IAM secret |
+| `SAGEMAKER_BUCKET` | Secret | S3 bucket name (no `s3://` prefix) |
+| `SAGEMAKER_ROLE_ARN` | Secret | SageMaker execution role ARN |
+| `AWS_ACCOUNT_ID` | Variable | `654157459447` |
+| `AWS_REGION` | Variable | `ap-south-1` |
 
 ---
 

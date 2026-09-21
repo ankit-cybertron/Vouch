@@ -21,6 +21,11 @@ import tempfile
 import time
 from pathlib import Path
 
+try:
+    from botocore.exceptions import ClientError as BotocoreClientError
+except ImportError:
+    BotocoreClientError = Exception  # fallback for local runs without boto3
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("sagemaker_deploy")
 
@@ -43,7 +48,7 @@ def package_risk_model(output_dir: Path) -> Path:
         # Copy inference handler
         code_dir = tmp_path / "code"
         code_dir.mkdir(parents=True, exist_ok=True)
-        
+
         inf_file = risk_dir / "inference.py"
         if inf_file.exists():
             (code_dir / "inference.py").write_text(inf_file.read_text())
@@ -118,18 +123,36 @@ def deploy_endpoint(
     unique_config_name = f"{endpoint_name}-config-{timestamp}"
 
     logger.info("Creating SageMaker model: %s", unique_model_name)
-    sm_client.create_model(
-        ModelName=unique_model_name,
-        PrimaryContainer={
-            "Image": image_uri,
-            "ModelDataUrl": s3_model_data,
-            "Environment": {
-                "SAGEMAKER_PROGRAM": "inference.py",
-                "SAGEMAKER_SUBMIT_DIRECTORY": s3_model_data,
+    logger.info("  Image URI:      %s", image_uri)
+    logger.info("  Model data:     %s", s3_model_data)
+    logger.info("  Execution role: %s", role_arn)
+    try:
+        sm_client.create_model(
+            ModelName=unique_model_name,
+            PrimaryContainer={
+                "Image": image_uri,
+                "ModelDataUrl": s3_model_data,
+                # SAGEMAKER_PROGRAM tells the container which script to run.
+                # Do NOT set SAGEMAKER_SUBMIT_DIRECTORY — pointing it at the
+                # model tar (or any path) triggers unnecessary ECR layer
+                # validations. The container locates code/inference.py inside
+                # the model tar automatically when SAGEMAKER_PROGRAM is set.
+                "Environment": {
+                    "SAGEMAKER_PROGRAM": "inference.py",
+                },
             },
-        },
-        ExecutionRoleArn=role_arn,
-    )
+            ExecutionRoleArn=role_arn,
+        )
+    except Exception as exc:
+        logger.error(
+            "CreateModel failed for %s\n"
+            "  Image URI:      %s\n"
+            "  Model data:     %s\n"
+            "  Execution role: %s\n"
+            "  Error: %s",
+            unique_model_name, image_uri, s3_model_data, role_arn, exc,
+        )
+        raise
 
     logger.info("Creating SageMaker endpoint configuration: %s", unique_config_name)
     sm_client.create_endpoint_config(
@@ -150,8 +173,17 @@ def deploy_endpoint(
     try:
         sm_client.describe_endpoint(EndpointName=endpoint_name)
         existing = True
-    except sm_client.exceptions.ClientError:
-        existing = False
+    except BotocoreClientError as exc:
+        msg = exc.response.get("Error", {}).get("Message", "").lower()
+        if "does not exist" in msg:
+            existing = False
+        else:
+            raise
+    except Exception as exc:
+        if "does not exist" in str(exc).lower():
+            existing = False
+        else:
+            raise
 
     if existing:
         logger.info("Updating existing SageMaker endpoint: %s", endpoint_name)
@@ -190,7 +222,29 @@ def main() -> None:
     parser.add_argument("--region", type=str, default=AWS_REGION, help="AWS region")
     parser.add_argument("--risk-endpoint", type=str, default=RISK_ENDPOINT_DEFAULT, help="Endpoint name for risk model")
     parser.add_argument("--depth-endpoint", type=str, default=DEPTH_ENDPOINT_DEFAULT, help="Endpoint name for depth model")
+    parser.add_argument("--ecr-account-id", type=str, default=os.environ.get("ECR_ACCOUNT_ID", ""), help="AWS Account ID for private ECR")
     args = parser.parse_args()
+
+    # Startup validation: ECR_ACCOUNT_ID is required for SageMaker deployment
+    ecr_account_id = (args.ecr_account_id or os.environ.get("ECR_ACCOUNT_ID", "")).strip()
+    if not args.package_only and not ecr_account_id:
+        logger.error("ECR_ACCOUNT_ID is required for SageMaker deployment")
+        sys.exit("ECR_ACCOUNT_ID is required for SageMaker deployment")
+
+    # Construct private ECR registry and repository image URIs
+    registry = f"{ecr_account_id}.dkr.ecr.{args.region}.amazonaws.com" if ecr_account_id else ""
+    xgb_tag = os.environ.get("XGB_IMAGE_TAG", "3.0-5")
+    pytorch_tag = os.environ.get("PYTORCH_IMAGE_TAG", "2.3.0-cpu-py311")
+
+    xgb_image = f"{registry}/vouch/sagemaker-xgboost:{xgb_tag}" if registry else ""
+    pytorch_image = f"{registry}/vouch/pytorch-inference:{pytorch_tag}" if registry else ""
+
+    if ecr_account_id:
+        if "763104351884" in xgb_image or "763104351884" in pytorch_image:
+            raise ValueError("Image URI must not contain AWS DLC account 763104351884. Use private ECR instead.")
+        logger.info("Private ECR registry: %s", registry)
+        logger.info("XGBoost image:  %s", xgb_image)
+        logger.info("PyTorch image:  %s", pytorch_image)
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     risk_tar = package_risk_model(DIST_DIR)
@@ -208,19 +262,22 @@ def main() -> None:
         )
         return
 
+    # Guard: skip live deployment if only placeholder artifacts are present
+    has_risk = (ROOT_DIR / "models" / "risk" / "risk_model.json").exists() and \
+                (ROOT_DIR / "models" / "risk" / "risk_model.json").stat().st_size > 200
+    has_depth = (ROOT_DIR / "models" / "depth" / "model").is_dir() and \
+                any((ROOT_DIR / "models" / "depth" / "model").iterdir())
+
+    if not (has_risk or has_depth):
+        logger.warning(
+            "No trained model artifacts found; skipping endpoint deployment. "
+            "Run 'python scripts/deploy_sagemaker.py --package-only' to package only."
+        )
+        return
+
     import boto3
     s3_client = boto3.client("s3", region_name=args.region)
     sm_client = boto3.client("sagemaker", region_name=args.region)
-
-    # Use AWS standard pre-built XGBoost and PyTorch inference images
-    account_lookup = {
-        "ap-south-1": "763104351884",
-        "us-east-1": "763104351884",
-        "us-west-2": "763104351884",
-    }
-    ecr_account = account_lookup.get(args.region, "763104351884")
-    xgb_image = f"{ecr_account}.dkr.ecr.{args.region}.amazonaws.com/sagemaker-xgboost:1.7-1"
-    pytorch_image = f"{ecr_account}.dkr.ecr.{args.region}.amazonaws.com/pytorch-inference:2.1.0-cpu-py310"
 
     deploy_endpoint(
         sm_client=sm_client,
