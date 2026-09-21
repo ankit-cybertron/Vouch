@@ -39,6 +39,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
 
+      - name: Verify AWS Identity and S3 Bucket
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+          SAGEMAKER_BUCKET: ${{ secrets.SAGEMAKER_BUCKET || secrets.AWS_S3_BUCKET }}
+        run: |
+          echo "=== AWS Identity ==="
+          aws sts get-caller-identity
+
+          echo "=== Configuration ==="
+          echo "Region: $AWS_REGION"
+          echo "Bucket: $SAGEMAKER_BUCKET"
+
+          echo "=== S3 Bucket Check ==="
+          aws s3api get-bucket-location \
+            --bucket "$SAGEMAKER_BUCKET"    
+
       - name: Package and Deploy Models to SageMaker
         env:
           AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
