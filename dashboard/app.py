@@ -137,6 +137,7 @@ def add_security_headers(response):
         "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' https: data:; "
         "connect-src 'self' https://api.github.com; "
+        "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; "
         "object-src 'none'; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
