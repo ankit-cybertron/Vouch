@@ -4,9 +4,9 @@
 
 [![Live Deployment](https://img.shields.io/badge/Deployment-AWS%20Elastic%20Beanstalk-232F3E?style=flat-square&logo=amazon-aws&logoColor=white)](http://vouch.ap-south-1.elasticbeanstalk.com)
 [![SageMaker](https://img.shields.io/badge/ML-Amazon%20SageMaker-01A88D?style=flat-square&logo=amazon-aws&logoColor=white)](#aws-architecture)
-[![Version](https://img.shields.io/badge/Version-v2.6-0969da?style=flat-square&logo=github&logoColor=white)](https://github.com/ankit-cybertron/Vouch)
+[![Version](https://img.shields.io/badge/Version-v2.7-0969da?style=flat-square&logo=github&logoColor=white)](https://github.com/ankit-cybertron/Vouch)
 [![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?style=flat-square&logo=github-actions&logoColor=white)](https://github.com/ankit-cybertron/Vouch/actions)
-[![Tests](https://img.shields.io/badge/Tests-186%20passed-success?style=flat-square&logo=pytest&logoColor=white)](https://github.com/ankit-cybertron/Vouch)
+[![Tests](https://img.shields.io/badge/Tests-195%20passed-success?style=flat-square&logo=pytest&logoColor=white)](https://github.com/ankit-cybertron/Vouch)
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![AWS Region](https://img.shields.io/badge/Region-ap--south--1-FF9900?style=flat-square&logo=amazon-aws&logoColor=white)](http://vouch.ap-south-1.elasticbeanstalk.com)
 [![Walkthrough Video](https://img.shields.io/badge/Demo%20Video-YouTube-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://youtu.be/m5iM3ArUbz0)
