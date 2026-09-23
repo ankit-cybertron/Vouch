@@ -511,18 +511,27 @@
   </section>
 
   <!-- ── 8. MINIMAL DEVELOPER FOOTER ─────────────────────────── -->
-  <footer style="border-top:1px solid var(--color-border-default); padding:40px 0; margin-top:60px; font-size:13px; color:var(--color-fg-muted); width:100%;">
-    <div class="vouch-footer-inner" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
-      <div style="display:flex; align-items:center; gap:8px;">
+  <footer class="vouch-footer">
+    <div class="vouch-footer-inner">
+      <div class="vouch-footer-left">
         <strong style="color:var(--color-fg-default);">Vouch</strong>
         <span>· Code Review Intelligence for GitHub</span>
+        <span class="vouch-footer-badge" style="display:inline-flex; align-items:center; gap:6px;">
+          <span class="vouch-status-dot"></span>
+          <span>AWS ap-south-1 · Operational</span>
+        </span>
+        {% if app_version %}
+        <span class="vouch-footer-badge" title="Branch: {{ app_version.branch }}">
+          v{{ app_version.version }} ({{ app_version.commit_short }})
+        </span>
+        {% endif %}
       </div>
-      <div style="display:flex; align-items:center; gap:20px;">
-        <a href="#how-it-works" style="color:var(--color-fg-muted); text-decoration:none;">How it works</a>
-        <a href="#capabilities" style="color:var(--color-fg-muted); text-decoration:none;">Capabilities</a>
-        <a href="#video-demo" style="color:var(--color-fg-muted); text-decoration:none;">Video Demo</a>
-        <a href="{{ youtube_url or 'https://youtu.be/m5iM3ArUbz0' }}" target="_blank" rel="noopener noreferrer" style="color:var(--color-fg-muted); text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="color:#ff0000;"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+      <div class="vouch-footer-links">
+        <a href="#how-it-works" class="vouch-footer-link">How it works</a>
+        <a href="#capabilities" class="vouch-footer-link">Capabilities</a>
+        <a href="#video-demo" class="vouch-footer-link">Video Demo</a>
+        <a href="{{ youtube_url or 'https://youtu.be/m5iM3ArUbz0' }}" target="_blank" rel="noopener noreferrer" class="vouch-footer-link" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:#ff0000;"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
           <span>YouTube</span>
         </a>
       </div>

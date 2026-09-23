@@ -98,11 +98,87 @@ if not _secret_key:
 app.config["SECRET_KEY"] = _secret_key
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
+# Production-grade session cookie hardening
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = (
+    os.environ.get("FLASK_ENV") == "production"
+    or os.environ.get("SESSION_COOKIE_SECURE", "false").lower() in ("true", "1")
+)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
+
 app.jinja_env.globals.update(max=max, min=min)
 
 # Support reverse-proxy headers (Elastic Beanstalk, ngrok, AWS ALB, etc.)
 # This ensures request.host_url and url_for() produce the correct scheme/host.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+@app.after_request
+def add_security_headers(response):
+    """Inject production-ready HTTP security headers."""
+    # Prevent MIME sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Prevent clickjacking / framing
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    # Cross-site scripting filter
+    response.headers["X-XSS-Protection"] = "0"
+    # Referrer policy
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Restrict permissions
+    response.headers["Permissions-Policy"] = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+    # Content Security Policy (allows Google fonts, GitHub avatars, necessary static assets)
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' https: data:; "
+        "connect-src 'self' https://api.github.com; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self' https://github.com;"
+    )
+    response.headers["Content-Security-Policy"] = csp
+
+    # Enable HSTS on HTTPS requests
+    is_https = request.is_secure or request.headers.get("X-Forwarded-Proto", "").lower() == "https"
+    if is_https:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    return response
+
+
+@app.before_request
+def verify_csrf_origin():
+    """Defense-in-depth CSRF guard verifying Origin/Referer on state-changing API requests."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        # Exempt webhooks if external providers send them
+        if request.path.startswith("/api/webhook") or request.path.startswith("/webhook"):
+            return None
+
+        origin = request.headers.get("Origin")
+        referer = request.headers.get("Referer")
+
+        if origin:
+            parsed_origin = urlparse(origin).netloc.lower()
+            current_host = request.host.lower()
+            if parsed_origin and parsed_origin != current_host:
+                base_url = os.environ.get("APP_BASE_URL", "")
+                if not (base_url and urlparse(base_url).netloc.lower() == parsed_origin):
+                    logger.warning("Blocked cross-origin request from origin: %s to %s", origin, request.path)
+                    return jsonify({"success": False, "error": "Cross-origin request blocked"}), 403
+        elif referer:
+            parsed_referer = urlparse(referer).netloc.lower()
+            current_host = request.host.lower()
+            if parsed_referer and parsed_referer != current_host:
+                base_url = os.environ.get("APP_BASE_URL", "")
+                if not (base_url and urlparse(base_url).netloc.lower() == parsed_referer):
+                    logger.warning("Blocked cross-origin request from referer: %s to %s", referer, request.path)
+                    return jsonify({"success": False, "error": "Cross-origin request blocked"}), 403
 
 
 def _app_base_url() -> str:
@@ -246,6 +322,9 @@ def _risk_tier(score: float) -> str:
     return "low"
 
 
+_GITHUB_IDENTIFIER = re.compile(r"^[a-zA-Z0-9_.-]{1,100}$")
+
+
 def _parse_repo_input(raw: str) -> tuple[str, str] | None:
     """
     Accept any of:
@@ -253,22 +332,29 @@ def _parse_repo_input(raw: str) -> tuple[str, str] | None:
       - github.com/owner/repo
       - owner/repo
     Returns (owner, repo) or None on failure.
+    Validates strictly against GitHub identifier rules.
     """
+    if not raw or not isinstance(raw, str):
+        return None
     raw = raw.strip().rstrip("/")
+    owner, repo = None, None
     # URL form
     if "github.com" in raw:
         try:
             parsed = urlparse(raw if raw.startswith("http") else "https://" + raw)
             parts = parsed.path.strip("/").split("/")
             if len(parts) >= 2:
-                return parts[0], parts[1]
+                owner, repo = parts[0], parts[1]
         except Exception:
             pass
     # owner/repo form
-    if "/" in raw:
+    elif "/" in raw:
         parts = raw.split("/")
         if len(parts) == 2 and parts[0] and parts[1]:
-            return parts[0], parts[1]
+            owner, repo = parts[0], parts[1]
+
+    if owner and repo and _GITHUB_IDENTIFIER.match(owner) and _GITHUB_IDENTIFIER.match(repo):
+        return owner, repo
     return None
 
 
@@ -4227,6 +4313,44 @@ def api_reviewer(username):
 def api_reviewer_refresh(username):
     _reviewer_cache.pop(username, None)
     return jsonify({"status": "cache cleared", "username": username})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Production Error Handlers
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.errorhandler(400)
+def bad_request_error(err):
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": getattr(err, "description", "Bad request")}), 400
+    return render_template(
+        "404.html",
+        error_title="Bad Request",
+        message="The request was invalid or malformed.",
+    ), 400
+
+
+@app.errorhandler(404)
+def not_found_error(err):
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": "Endpoint not found"}), 404
+    return render_template(
+        "404.html",
+        error_title="Page Not Found",
+        message="The page, repository, or pull request you are looking for could not be found.",
+    ), 404
+
+
+@app.errorhandler(500)
+def internal_server_error(err):
+    logger.error("Internal Server Error on %s: %s", request.path, err, exc_info=True)
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": "An internal server error occurred"}), 500
+    return render_template(
+        "404.html",
+        error_title="Internal Server Error",
+        message="An unexpected server error occurred while processing your request. Please try again later.",
+    ), 500
 
 
 if __name__ == "__main__":

@@ -48,19 +48,40 @@
 
   {% set kpi = org_kpis %}
 
-  {# Org KPI Row 1 #}
-  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; margin-bottom:12px;">
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.total_prs_scored }}</div><div class="kpi-lbl">Total PRs Scored</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.open_prs }}</div><div class="kpi-lbl">Open PRs</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val{% if kpi.high_risk_open > 0 %} c-danger{% endif %}">{{ kpi.high_risk_open }}</div><div class="kpi-lbl">High-Risk Open</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.requeued_total }}</div><div class="kpi-lbl">Re-Queued Total</div></div>
-  </div>
-  {# Org KPI Row 2 #}
-  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; margin-bottom:24px;">
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val{% if kpi.org_rubber_stamp_rate > 20 %} c-danger{% endif %}">{{ kpi.org_rubber_stamp_rate }}%</div><div class="kpi-lbl">Org Rubber-Stamp Rate</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val">{{ kpi.avg_residual_risk }}</div><div class="kpi-lbl">Avg Residual Risk</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val{% if kpi.high_fatigue_count > 0 %} c-danger{% endif %}">{{ kpi.high_fatigue_count }}</div><div class="kpi-lbl">High Fatigue Reviewers</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div class="kpi-val c-success">{{ kpi.healthy_count }}</div><div class="kpi-lbl">Healthy Reviewers</div></div>
+  {# Org KPI Grid #}
+  <div class="vouch-kpi-grid">
+    <div class="vouch-kpi-card accent-blue">
+      <div class="vouch-kpi-val">{{ kpi.total_prs_scored }}</div>
+      <div class="vouch-kpi-lbl">Total PRs Scored</div>
+    </div>
+    <div class="vouch-kpi-card accent-blue">
+      <div class="vouch-kpi-val">{{ kpi.open_prs }}</div>
+      <div class="vouch-kpi-lbl">Open PRs</div>
+    </div>
+    <div class="vouch-kpi-card{% if kpi.high_risk_open > 0 %} accent-danger{% else %} accent-blue{% endif %}">
+      <div class="vouch-kpi-val{% if kpi.high_risk_open > 0 %} c-danger{% endif %}">{{ kpi.high_risk_open }}</div>
+      <div class="vouch-kpi-lbl">High-Risk Open</div>
+    </div>
+    <div class="vouch-kpi-card accent-attention">
+      <div class="vouch-kpi-val">{{ kpi.requeued_total }}</div>
+      <div class="vouch-kpi-lbl">Re-Queued Total</div>
+    </div>
+    <div class="vouch-kpi-card{% if kpi.org_rubber_stamp_rate > 20 %} accent-danger{% else %} accent-blue{% endif %}">
+      <div class="vouch-kpi-val{% if kpi.org_rubber_stamp_rate > 20 %} c-danger{% endif %}">{{ kpi.org_rubber_stamp_rate }}%</div>
+      <div class="vouch-kpi-lbl">Org Rubber-Stamp Rate</div>
+    </div>
+    <div class="vouch-kpi-card accent-blue">
+      <div class="vouch-kpi-val">{{ kpi.avg_residual_risk }}</div>
+      <div class="vouch-kpi-lbl">Avg Residual Risk</div>
+    </div>
+    <div class="vouch-kpi-card{% if kpi.high_fatigue_count > 0 %} accent-danger{% else %} accent-success{% endif %}">
+      <div class="vouch-kpi-val{% if kpi.high_fatigue_count > 0 %} c-danger{% endif %}">{{ kpi.high_fatigue_count }}</div>
+      <div class="vouch-kpi-lbl">High Fatigue Reviewers</div>
+    </div>
+    <div class="vouch-kpi-card accent-success">
+      <div class="vouch-kpi-val c-success">{{ kpi.healthy_count }}</div>
+      <div class="vouch-kpi-lbl">Healthy Reviewers</div>
+    </div>
   </div>
 
   {# Section 1: Reviewer Health Cards #}

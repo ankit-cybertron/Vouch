@@ -30,11 +30,23 @@
   {% endif %}
 
   {# KPI Row #}
-  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; margin-bottom:24px;">
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-danger-fg);">{{ breached_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Already Breached</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-danger-fg);">{{ imminent_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Imminent (&lt; 2h)</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-attention-fg);">{{ at_risk_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">At Risk (&lt; 8h)</div></div>
-    <div class="gh-box" style="padding:16px; text-align:center;"><div style="font-size:28px; font-weight:700; color:var(--color-fg-default);">{{ warning_count }}</div><div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Warning</div></div>
+  <div class="vouch-kpi-grid" style="margin-bottom:24px;">
+    <div class="vouch-kpi-card" style="border-top-color:var(--color-danger-fg);">
+      <div class="vouch-kpi-card-value danger tabular-nums">{{ breached_count }}</div>
+      <div class="vouch-kpi-card-label">Already Breached</div>
+    </div>
+    <div class="vouch-kpi-card" style="border-top-color:var(--color-danger-fg);">
+      <div class="vouch-kpi-card-value danger tabular-nums">{{ imminent_count }}</div>
+      <div class="vouch-kpi-card-label">Imminent (&lt; 2h)</div>
+    </div>
+    <div class="vouch-kpi-card" style="border-top-color:var(--color-attention-fg);">
+      <div class="vouch-kpi-card-value warning tabular-nums">{{ at_risk_count }}</div>
+      <div class="vouch-kpi-card-label">At Risk (&lt; 8h)</div>
+    </div>
+    <div class="vouch-kpi-card">
+      <div class="vouch-kpi-card-value tabular-nums">{{ warning_count }}</div>
+      <div class="vouch-kpi-card-label">Warning</div>
+    </div>
   </div>
 
   {# Main Predictions Table #}

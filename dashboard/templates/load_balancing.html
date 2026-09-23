@@ -21,22 +21,22 @@
   </div>
 
   {# KPI Row #}
-  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-bottom:24px;">
-    <div class="gh-box" style="padding:16px; text-align:center;">
-      <div style="font-size:28px; font-weight:700; color:var(--color-fg-default);">{{ reviewers|length }}</div>
-      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Total Reviewers</div>
+  <div class="vouch-kpi-grid" style="margin-bottom:24px;">
+    <div class="vouch-kpi-card">
+      <div class="vouch-kpi-card-value tabular-nums">{{ reviewers|length }}</div>
+      <div class="vouch-kpi-card-label">Total Reviewers</div>
     </div>
-    <div class="gh-box" style="padding:16px; text-align:center;">
-      <div style="font-size:28px; font-weight:700; color:var(--color-danger-fg);">{{ overloaded_count }}</div>
-      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Overloaded</div>
+    <div class="vouch-kpi-card" style="border-top-color:var(--color-danger-fg);">
+      <div class="vouch-kpi-card-value danger tabular-nums">{{ overloaded_count }}</div>
+      <div class="vouch-kpi-card-label">Overloaded</div>
     </div>
-    <div class="gh-box" style="padding:16px; text-align:center;">
-      <div style="font-size:28px; font-weight:700; color:var(--color-success-fg);">{{ available_count }}</div>
-      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Available</div>
+    <div class="vouch-kpi-card" style="border-top-color:var(--color-success-fg);">
+      <div class="vouch-kpi-card-value success tabular-nums">{{ available_count }}</div>
+      <div class="vouch-kpi-card-label">Available</div>
     </div>
-    <div class="gh-box" style="padding:16px; text-align:center;">
-      <div style="font-size:28px; font-weight:700; color:var(--color-attention-fg);">{{ unassigned_high_risk|length }}</div>
-      <div style="font-size:12px; color:var(--color-fg-muted); margin-top:4px;">Unassigned High-Risk PRs</div>
+    <div class="vouch-kpi-card" style="border-top-color:var(--color-attention-fg);">
+      <div class="vouch-kpi-card-value warning tabular-nums">{{ unassigned_high_risk|length }}</div>
+      <div class="vouch-kpi-card-label">Unassigned High-Risk PRs</div>
     </div>
   </div>
 

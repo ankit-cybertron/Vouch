@@ -5,6 +5,16 @@
 (function () {
   'use strict';
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function initSmartRepoAutocomplete(inputEl, options = {}) {
     if (!inputEl) return;
 
@@ -54,14 +64,25 @@
         item.setAttribute('role', 'option');
         item.setAttribute('data-index', idx);
 
-        // Highlight matched part
+        // Highlight matched part securely
         const fullName = r.full_name || `${r.owner}/${r.repo}`;
-        let displayName = fullName;
+        const safeFullName = escapeHtml(fullName);
+        let displayName = safeFullName;
         if (query) {
-          const qEscaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const regex = new RegExp(`(${qEscaped})`, 'gi');
-          displayName = fullName.replace(regex, '<strong>$1</strong>');
+          const safeQuery = escapeHtml(query.trim());
+          if (safeQuery) {
+            const qEscaped = safeQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            try {
+              const regex = new RegExp(`(${qEscaped})`, 'gi');
+              displayName = safeFullName.replace(regex, '<strong>$1</strong>');
+            } catch (_) {
+              displayName = safeFullName;
+            }
+          }
         }
+
+        const safeLang = r.language ? escapeHtml(r.language) : '';
+        const safeStars = (r.stars && r.stars !== '—') ? escapeHtml(String(r.stars)) : '';
 
         item.innerHTML = `
           <div class="smart-repo-main">
@@ -71,8 +92,8 @@
             <span class="smart-repo-name">${displayName}</span>
           </div>
           <div class="smart-repo-meta">
-            ${r.language ? `<span class="smart-repo-lang"><span class="smart-repo-dot" style="background:${r.language_color || '#586069'}"></span>${r.language}</span>` : ''}
-            ${r.stars && r.stars !== '—' ? `<span class="smart-repo-stars">★ ${r.stars}</span>` : ''}
+            ${safeLang ? `<span class="smart-repo-lang"><span class="smart-repo-dot" style="background:${r.language_color || '#586069'}"></span>${safeLang}</span>` : ''}
+            ${safeStars ? `<span class="smart-repo-stars">★ ${safeStars}</span>` : ''}
           </div>
         `;
 

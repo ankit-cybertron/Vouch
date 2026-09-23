@@ -5,11 +5,7 @@
 {% block content %}
 
 <!-- ── Page Top Controls (Header & Subnav - only shown when repos are loaded) ── -->
-{% if has_session_repos %}
-<div class="repos-top-section" id="repos-top-section" style="display: block;">
-  {% else %}
-  <div class="repos-top-section" id="repos-top-section" style="display: none;">
-    {% endif %}
+<div class="repos-top-section" id="repos-top-section"{% if not has_session_repos %} style="display: none;"{% endif %}>
     <div class="gh-repos-page-header">
       <div class="gh-repos-header-title">
         <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-fg-muted);">
@@ -65,11 +61,7 @@
   </div>
 
   <!-- ── Repository Cards Grid ────────────────────────────────── -->
-  {% if has_session_repos %}
-  <div class="gh-repo-grid" id="repo-grid" data-has-session-repos="true" style="display: grid;">
-  {% else %}
-  <div class="gh-repo-grid" id="repo-grid" data-has-session-repos="false" style="display: none;">
-  {% endif %}
+  <div class="gh-repo-grid" id="repo-grid" data-has-session-repos="{{ 'true' if has_session_repos else 'false' }}"{% if not has_session_repos %} style="display: none;"{% endif %}>
     {% for repo in repos %}
     {% set fn_lower = repo.full_name | lower %}
     {% set is_session_repo = (repo.full_name in (session_repos or [])) or (fn_lower in (session_repos or [])) %}
@@ -178,13 +170,7 @@
   </div>
 
   <!-- ── Clean Screen Hero Section (Only element visible on fresh login or after Clear All) ── -->
-  {% if has_session_repos %}
-  <div class="gh-repo-empty-state" id="repo-empty-state"
-    style="display: none; padding: 48px 16px; text-align: center; background: transparent; border: none;">
-  {% else %}
-  <div class="gh-repo-empty-state" id="repo-empty-state"
-    style="display: block; padding: 48px 16px; text-align: center; background: transparent; border: none;">
-  {% endif %}
+  <div class="gh-repo-empty-state" id="repo-empty-state"{% if has_session_repos %} style="display: none;"{% endif %}>
     <div class="hero-search-page" style="margin: 0 auto; max-width: 580px;">
       <div class="hero-search-icon">
         <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor">

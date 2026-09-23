@@ -13,10 +13,12 @@
   --color-canvas-default: #ffffff;
   --color-canvas-subtle: #f6f8fa;
   --color-canvas-inset: #f6f8fa;
+  --color-canvas-glass: rgba(255, 255, 255, 0.82);
   --color-card-bg: #ffffff;
   --color-card-hover: #f3f4f6;
   --color-border-default: #d0d7de;
   --color-border-muted: #d8dee4;
+  --color-border-glass: rgba(208, 215, 222, 0.7);
   --color-fg-default: #1f2328;
   --color-fg-muted: #656d76;
   --color-fg-subtle: #6e7681;
@@ -35,17 +37,25 @@
   --color-done-fg: #8250df;
   --color-done-emphasis: #8250df;
   --color-done-subtle: #fbefff;
-  --color-header-bg: rgba(255, 255, 255, 0.9);
+  --color-header-bg: rgba(255, 255, 255, 0.88);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-card-hover: 0 8px 24px rgba(9, 105, 218, 0.08);
+  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-smooth: 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-theme="dark"] {
   --color-canvas-default: #0d1117;
   --color-canvas-subtle: #161b22;
   --color-canvas-inset: #010409;
+  --color-canvas-glass: rgba(22, 27, 34, 0.82);
   --color-card-bg: #161b22;
   --color-card-hover: #1c2128;
   --color-border-default: #30363d;
   --color-border-muted: #21262d;
+  --color-border-glass: rgba(48, 54, 61, 0.7);
   --color-fg-default: #f0f6fc;
   --color-fg-muted: #8b949e;
   --color-fg-subtle: #6e7681;
@@ -64,7 +74,13 @@
   --color-done-fg: #a371f7;
   --color-done-emphasis: #8957e5;
   --color-done-subtle: rgba(163, 113, 247, 0.15);
-  --color-header-bg: rgba(13, 17, 23, 0.9);
+  --color-header-bg: rgba(13, 17, 23, 0.88);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 8px 24px rgba(31, 111, 235, 0.18);
+  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-smooth: 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html, body {
@@ -1074,6 +1090,17 @@ html[data-theme="light"] .gh-brand-logo .vouch-logo-dot {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.repos-top-section {
+  display: block;
+}
+
+.gh-repo-empty-state {
+  padding: 48px 16px;
+  text-align: center;
+  background: transparent;
+  border: none;
 }
 
 .gh-repo-grid {
@@ -4024,3 +4051,283 @@ html {
 .border-fatigue-high { border-left: 3px solid var(--color-danger-fg) !important; }
 .border-fatigue-moderate { border-left: 3px solid var(--color-attention-fg) !important; }
 .border-fatigue-healthy { border-left: 3px solid var(--color-success-fg) !important; }
+
+/* ============================================================
+   Modernized Production UI Components & Utilities
+   Linear & GitHub-Grade Developer Experience Enhancements
+   ============================================================ */
+
+/* Sleek custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-muted);
+}
+
+/* Tabular figures for aligned risk numbers and metrics */
+.tabular-nums, .kpi-val, .vouch-kpi-val, .gh-meter, .pr-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Glassmorphism containers */
+.vouch-glass-card {
+  background: var(--color-canvas-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border-glass);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-smooth), transform var(--transition-smooth), border-color var(--transition-smooth);
+}
+
+.vouch-glass-card:hover {
+  box-shadow: var(--shadow-card-hover);
+  border-color: var(--color-accent-fg);
+}
+
+/* KPI metric cards */
+.vouch-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.vouch-kpi-card {
+  background: var(--color-canvas-subtle);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.vouch-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-accent-emphasis);
+  box-shadow: var(--shadow-md);
+}
+
+.vouch-kpi-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.vouch-kpi-card.accent-danger::before { background: var(--color-danger-fg); }
+.vouch-kpi-card.accent-attention::before { background: var(--color-attention-fg); }
+.vouch-kpi-card.accent-success::before { background: var(--color-success-fg); }
+.vouch-kpi-card.accent-blue::before { background: var(--color-accent-fg); }
+
+.vouch-kpi-val {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-fg-default);
+  line-height: 1.2;
+}
+
+.vouch-kpi-lbl {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-fg-muted);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Status Indicator Dot with pulsing animation */
+.vouch-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.vouch-status-dot.green {
+  background: var(--color-success-fg);
+  box-shadow: 0 0 0 rgba(46, 160, 67, 0.4);
+  animation: vouchPulseGreen 2s infinite;
+}
+
+.vouch-status-dot.red {
+  background: var(--color-danger-fg);
+  box-shadow: 0 0 0 rgba(248, 81, 73, 0.4);
+  animation: vouchPulseRed 1.8s infinite;
+}
+
+.vouch-status-dot.amber {
+  background: var(--color-attention-fg);
+  box-shadow: 0 0 0 rgba(210, 153, 34, 0.4);
+  animation: vouchPulseAmber 2s infinite;
+}
+
+@keyframes vouchPulseGreen {
+  0% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0.6); }
+  70% { box-shadow: 0 0 0 6px rgba(46, 160, 67, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0); }
+}
+
+@keyframes vouchPulseRed {
+  0% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.6); }
+  70% { box-shadow: 0 0 0 6px rgba(248, 81, 73, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0); }
+}
+
+@keyframes vouchPulseAmber {
+  0% { box-shadow: 0 0 0 0 rgba(210, 153, 34, 0.6); }
+  70% { box-shadow: 0 0 0 6px rgba(210, 153, 34, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(210, 153, 34, 0); }
+}
+
+/* Subtle micro-elevation on repo cards and PR rows */
+.gh-repo-card {
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast) !important;
+}
+
+.gh-repo-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-accent-emphasis) !important;
+  box-shadow: var(--shadow-card-hover) !important;
+}
+
+.gh-pr-row {
+  transition: background-color var(--transition-fast), border-color var(--transition-fast) !important;
+}
+
+.gh-pr-row:hover {
+  background-color: var(--color-canvas-subtle) !important;
+}
+
+/* Re-queue badge enhancement */
+.gh-label-requeued {
+  background: var(--color-danger-subtle) !important;
+  color: var(--color-danger-fg) !important;
+  border: 1px solid rgba(248, 81, 73, 0.4) !important;
+  position: relative;
+  font-weight: 600 !important;
+}
+
+/* Universal Production Footer */
+.vouch-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--color-border-default);
+  background: var(--color-canvas-subtle);
+  padding: 36px 0 24px;
+  font-size: 13px;
+  color: var(--color-fg-muted);
+}
+
+.vouch-footer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.vouch-footer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.vouch-footer-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vouch-footer-tagline {
+  color: var(--color-fg-muted);
+  font-size: 12.5px;
+}
+
+.vouch-footer-nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.vouch-footer-link {
+  color: var(--color-fg-muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color var(--transition-fast);
+}
+
+.vouch-footer-link:hover {
+  color: var(--color-accent-fg);
+  text-decoration: none;
+}
+
+.vouch-footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border-muted);
+  font-size: 12px;
+}
+
+.vouch-footer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  color: var(--color-fg-default);
+  background: var(--color-canvas-inset);
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--color-border-default);
+}
+
+.vouch-footer-badges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vouch-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-fg);
+  border: 1px solid rgba(9, 105, 218, 0.2);
+}
+
+/* Accessibility focus ring */
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid var(--color-accent-fg);
+  outline-offset: 2px;
+}

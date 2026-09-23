@@ -1,20 +1,24 @@
 {% extends "base.html" %}
-{% block title %}PR Not Found{% endblock %}
+{% block title %}{{ error_title or "Page Not Found" }} · Vouch{% endblock %}
+{% block meta_description %}Resource status for Vouch Code Review Intelligence{% endblock %}
 
 {% block content %}
-<div class="empty-state" style="padding: 80px 24px; text-align: center; max-width: 600px; margin: 0 auto;">
-  <div style="margin-bottom: 16px; color: var(--color-fg-muted);">
-    <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor">
+<div class="empty-state" style="padding: 96px 24px; text-align: center; max-width: 600px; margin: 40px auto; background: var(--color-canvas-subtle); border: 1px solid var(--color-border-default); border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);">
+  <div style="margin-bottom: 20px; color: var(--color-fg-muted); display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background: var(--color-canvas-inset); border: 1px solid var(--color-border-muted);">
+    <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
       <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"></path>
     </svg>
   </div>
-  <h1 style="font-size: 24px; font-weight: 600; margin-bottom: 8px; color: var(--color-fg-default);">Pull Request Not Found</h1>
-  <p style="color: var(--color-fg-muted); font-size: 14px; margin-bottom: 24px; line-height: 1.5;">
-    {{ message or "The requested pull request could not be located in the local cache or fetched from GitHub." }}
+  <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 12px; color: var(--color-fg-default); letter-spacing: -0.02em;">
+    {{ error_title or "Page Not Found" }}
+  </h1>
+  <p style="color: var(--color-fg-muted); font-size: 14.5px; margin-bottom: 28px; line-height: 1.6; max-width: 460px; margin-left: auto; margin-right: auto;">
+    {{ message or "The requested resource could not be located in the local cache or fetched from GitHub." }}
   </p>
-  <div style="display: flex; gap: 12px; justify-content: center;">
-    <a href="/repos" class="gh-btn gh-btn-primary">Return to Repositories</a>
-    <a href="https://github.com" target="_blank" rel="noopener noreferrer" class="gh-btn">Search GitHub</a>
+  <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+    <a href="/repos" class="gh-btn gh-btn-primary" style="padding: 7px 18px; font-weight: 600;">Explore Repositories</a>
+    <a href="/" class="gh-btn" style="padding: 7px 16px;">Vouch Home</a>
+    <a href="https://github.com/ankit-cybertron/Vouch" target="_blank" rel="noopener noreferrer" class="gh-btn" style="padding: 7px 16px;">GitHub Project</a>
   </div>
 </div>
 {% endblock %}

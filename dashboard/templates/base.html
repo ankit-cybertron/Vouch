@@ -117,20 +117,6 @@
     {% block content %}{% endblock %}
   </main>
 
-  {% block footer %}
-  <!-- ── Clean Footer ───────────────────────────────────────── -->
-  <footer class="gh-footer" role="contentinfo">
-    <div class="gh-footer-inner">
-      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <strong>Vouch</strong>
-        {% if app_version %}
-        <span class="gh-footer-version" title="Full commit: {{ app_version.commit }}">v{{ app_version.version }} ({{ app_version.commit_short }})</span>
-        {% endif %}
-        <span>· Review Confidence Scoring &amp; Risk-Aware Re-queuing · Bharat Builds Tour 2026</span>
-      </div>
-    </div>
-  </footer>
-  {% endblock %}
 
   <!-- ── Option 4: Connect GitHub Personal Access Token Modal ────── -->
   <div class="gh-modal-backdrop" id="connect-token-modal" style="display:none;" onclick="if(event.target===this) closeConnectTokenModal()">
@@ -201,6 +187,46 @@
       </div>
     </div>
   </div>
+
+  {% block footer %}
+  <footer class="vouch-footer" role="contentinfo">
+    <div class="vouch-footer-inner">
+      <div class="vouch-footer-top">
+        <div class="vouch-footer-brand-wrap">
+          <svg class="gh-brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1897 632" width="110" height="36" aria-label="Vouch" role="img">
+            <path class="vouch-logo-letters" d="M603.58 181.4C677.22 174.92 741.42 241.52 735.75 314.5C732.46 356.82 706.43 393.13 669.7 413.23C654.54 421.53 636.72 426.55 619.5 427.68C602.35 428.81 584.79 426.44 568.53 420.93C553.66 415.89 539.02 407.72 527.44 397.05C514.21 384.87 503.49 370.85 496.22 354.31C490.84 342.06 487.78 329.25 486.51 315.97C485.06 300.91 487.31 285.67 491.71 271.29C507.02 221.32 551.76 185.97 603.58 181.4ZM1269.03 204.5C1269.03 226.32 1269.03 248.14 1269.03 269.95C1261.35 266.75 1254.04 262.48 1246.36 259.15C1217.6 246.69 1184.36 237.89 1154.5 252C1148.2 254.98 1142.36 259.04 1137.37 263.89C1131.44 269.65 1126.61 276.53 1123.76 284.32C1120.91 292.1 1119.44 300.19 1119.52 308.5C1119.99 353.22 1160.99 374.45 1201.5 369.97C1219.99 367.93 1237.46 361.64 1254.14 353.61C1259.13 351.2 1263.92 348.33 1269.01 346.18C1269.01 366.54 1269.01 386.89 1269.01 407.24C1263.66 409.45 1258.56 412.38 1253.22 414.68C1239.86 420.42 1225.75 424.3 1211.42 426.68C1148.68 437.09 1078.32 416.63 1053.1 353.46C1048.03 340.77 1045.25 327.16 1044.9 313.5C1044.55 299.73 1046.39 286.4 1050.77 273.35C1069.06 218.92 1124.73 185.7 1180.5 183.23C1211.42 181.86 1241.99 189.63 1269.03 204.5ZM287.76 188.28C305.67 237.43 323.59 286.57 341.5 335.71C360.83 286.57 380.17 237.44 399.5 188.3C426.27 188.3 453.05 188.3 479.82 188.3C479.68 194.8 475.38 201.4 472.91 207.47C466.41 223.38 459.04 238.93 452.23 254.7C434.94 294.71 416.97 334.49 398.45 373.95C393.22 385.1 388.13 396.33 383.06 407.56C380.74 412.7 378.91 418.62 375.5 423.1C351.17 423.1 326.83 423.1 302.5 423.1C300.3 416.59 297.11 410.44 294.45 404.08C288.18 389.13 281.55 374.33 275.01 359.5C259.65 324.67 244.93 289.52 230.02 254.5C223.25 238.59 216.09 222.83 209.69 206.76C207.56 201.41 202.38 194.03 202.74 188.28C231.08 188.28 259.42 188.28 287.76 188.28ZM849.96 188.29C851.06 192.46 850.51 197.14 850.55 201.5C850.63 211.16 850.6 220.83 850.58 230.5C850.53 259.17 850.48 287.83 850.58 316.5C850.67 340.14 851.63 362.74 878.5 370.06C883.29 371.36 888.54 371.82 893.5 371.77C898.14 371.72 902.94 371.18 907.38 369.81C931.6 362.33 933.91 340.42 933.98 318.5C934.08 289.83 934 261.17 933.98 232.5C933.98 218.05 932.49 202.59 934.42 188.3C960.12 188.3 985.81 188.3 1011.5 188.3C1012.65 196.84 1011.94 205.86 1011.95 214.5C1011.96 230.83 1011.91 247.17 1011.94 263.5C1011.97 278.83 1012 294.17 1011.95 309.5C1011.86 335.33 1011 359.8 996.84 382.33C968.28 427.77 901.24 434.36 853.42 425.26C828.2 420.46 804.08 408.9 789.58 386.91C767.27 353.08 772.87 308.17 772.81 269.5C772.78 252.17 772.82 234.83 772.81 217.5C772.8 207.88 771.96 197.82 773.16 188.29C798.76 188.29 824.36 188.29 849.96 188.29ZM1403.27 188.29C1403.27 218.39 1403.27 248.48 1403.27 278.57C1432.68 278.57 1462.09 278.57 1491.5 278.57C1493.44 271.74 1492.35 263.64 1492.35 256.5C1492.35 241.5 1492.37 226.5 1492.36 211.5C1492.36 204.12 1491.09 195.41 1492.91 188.29C1519.23 188.29 1545.55 188.29 1571.87 188.29C1571.87 266.56 1571.87 344.83 1571.87 423.1C1545.36 423.1 1518.86 423.1 1492.35 423.1C1492.35 394.38 1492.35 365.66 1492.35 336.94C1462.67 336.94 1432.98 336.94 1403.29 336.94C1403.29 365.66 1403.29 394.38 1403.29 423.1C1377.15 423.1 1351 423.1 1324.85 423.1C1324.85 344.83 1324.85 266.56 1324.85 188.29C1350.99 188.29 1377.13 188.29 1403.27 188.29ZM643.5 252.86C629.67 249.79 616.59 247.35 602.32 248.56C596.97 249.01 591.75 249.9 586.54 251.16C584.23 251.73 581.04 253.33 578.66 252.81C575.79 252.19 572.42 248.17 569.95 246.54C562.69 241.75 551.32 235.73 542.44 237.5C536.84 250.1 537.46 263.97 542.67 276.5C536.75 286.54 532.29 295.64 531.13 307.5C530.43 314.66 531.05 321.62 532.78 328.59C544.8 377.15 607.32 389.89 648.16 372.64C672.72 362.27 691.85 339.18 690.76 311.5C690.2 297.39 685.11 288.59 679.06 276.5C683.87 264 685.65 249.99 679.5 237.5C666.54 235.72 653.29 245.73 643.5 252.86Z" fill="currentColor" fill-rule="evenodd" />
+            <path class="vouch-logo-dot" d="M1686.88 345.61C1686.88 371.46 1686.88 397.32 1686.88 423.17C1660.74 423.17 1634.61 423.17 1608.47 423.17C1608.47 397.32 1608.47 371.46 1608.47 345.61C1634.61 345.61 1660.74 345.61 1686.88 345.61Z" fill="#3fb950" fill-rule="evenodd" />
+          </svg>
+          <span class="vouch-footer-tagline">Automated Code Review Intelligence &amp; Risk-Aware PR Governance</span>
+        </div>
+        <nav class="vouch-footer-nav" aria-label="Footer navigation">
+          <a href="/repos" class="vouch-footer-link">Repositories</a>
+          <a href="/pulls" class="vouch-footer-link">Pull Requests</a>
+          <a href="/team-health" class="vouch-footer-link">Org Health</a>
+          <a href="/reviewer" class="vouch-footer-link">Reviewers</a>
+          <a href="https://github.com/ankit-cybertron/Vouch" target="_blank" rel="noopener noreferrer" class="vouch-footer-link">GitHub</a>
+        </nav>
+      </div>
+      <div class="vouch-footer-bottom">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <span>&copy; 2026 Vouch Systems. Open-source risk governance.</span>
+          <span class="vouch-footer-status">
+            <span class="vouch-status-dot green"></span>
+            <span>AWS ap-south-1 · Operational</span>
+          </span>
+        </div>
+        <div class="vouch-footer-badges">
+          <span class="vouch-badge-pill">ML SageMaker</span>
+          {% if app_version %}
+          <span class="vouch-badge-pill" title="Commit {{ app_version.commit_short }}">v{{ app_version.version }}</span>
+          {% else %}
+          <span class="vouch-badge-pill">v2.6</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </footer>
+  {% endblock %}
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   <script src="{{ url_for('static', filename='js/repo_search_autocomplete.js') }}"></script>
