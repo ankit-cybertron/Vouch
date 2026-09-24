@@ -2050,6 +2050,25 @@ def repo_view(owner: str, repo_name: str):
     )
 
 
+def _get_hero_search_context() -> dict:
+    """Build recent repositories, total repo count, and total pr count for hero search pages."""
+    recent_repos = []
+    seen = set()
+    for repo_dict in list(FETCHED_REPOS.values()):
+        fn = repo_dict.get("full_name") or f"{repo_dict.get('owner')}/{repo_dict.get('repo')}"
+        if fn and fn not in seen:
+            seen.add(fn)
+            recent_repos.append(repo_dict)
+
+    total_prs = sum(len(prs) for prs in REPO_PRS_CACHE.values())
+    total_repos = len(FETCHED_REPOS)
+    return {
+        "recent_repos": recent_repos[:12],
+        "total_repos": total_repos,
+        "total_prs": total_prs,
+    }
+
+
 @app.route("/pulls")
 @app.route("/board")
 def board():
@@ -2068,27 +2087,18 @@ def board():
         if parsed:
             return repo_view(parsed[0], parsed[1])
 
-    recent_repos = []
-    seen = set()
-    for repo_dict in list(FETCHED_REPOS.values()):
-        fn = repo_dict.get("full_name") or f"{repo_dict.get('owner')}/{repo_dict.get('repo')}"
-        if fn and fn not in seen:
-            seen.add(fn)
-            recent_repos.append(repo_dict)
-
-    total_prs = sum(len(prs) for prs in REPO_PRS_CACHE.values())
-    total_repos = len(FETCHED_REPOS)
+    hero_ctx = _get_hero_search_context()
 
     return render_template(
         "board.html",
         mode="search",
-        recent_repos=recent_repos[:12],
-        total_prs=total_prs,
-        total_repos=total_repos,
+        recent_repos=hero_ctx["recent_repos"],
+        total_prs=hero_ctx["total_prs"],
+        total_repos=hero_ctx["total_repos"],
         current_repo=None,
         active_repo_name=None,
         prs=[],
-        stats={"total_scored": 0, "total_prs": total_prs, "high_risk_flagged": 0, "medium_risk_count": 0, "avg_residual_risk": 0},
+        stats={"total_scored": 0, "total_prs": hero_ctx["total_prs"], "high_risk_flagged": 0, "medium_risk_count": 0, "avg_residual_risk": 0},
     )
 
 
@@ -2618,27 +2628,65 @@ def _compute_team_health(repo_filter: str | None = None) -> dict:
 @app.route("/team-health")
 @app.route("/validation")
 def team_health():
-    try:
-        data = _build_org_health_data()
-    except Exception as e:
-        logger.error("team_health route error: %s", e)
+    repo_arg = request.args.get("repo", "").strip().lstrip("@")
+    force_search = request.args.get("view") == "search"
+    hero_ctx = _get_hero_search_context()
+
+    if repo_arg:
+        if repo_arg.lower() != "all":
+            parsed = _parse_repo_input(repo_arg)
+            if parsed:
+                owner, repo_name = parsed
+                full_name = f"{owner}/{repo_name}"
+                session["active_repo"] = full_name
+                # Ensure repo PRs are loaded into store/cache if not already present
+                if full_name.lower() not in REPO_PRS_CACHE and not store.get_prs(repo=full_name):
+                    try:
+                        _fetch_and_score_repo(owner, repo_name, limit=50)
+                    except Exception as e:
+                        logger.error("Error auto-fetching repo %s for team health: %s", full_name, e)
+                data = _build_org_health_data(repo_filter=full_name)
+            else:
+                data = _build_org_health_data(repo_filter=repo_arg)
+        else:
+            data = _build_org_health_data(repo_filter="all")
+        data["mode"] = "dashboard"
+    elif force_search:
         data = _empty_org_health()
+        data["mode"] = "search"
+    else:
+        try:
+            data = _build_org_health_data(repo_filter="all")
+        except Exception as e:
+            logger.error("team_health route error: %s", e)
+            data = _empty_org_health()
+        if data.get("org_kpis", {}).get("total_prs_scored", 0) == 0:
+            data["mode"] = "search"
+        else:
+            data["mode"] = "dashboard"
+
+    data.update(hero_ctx)
     return render_template("team_health.html", **data)
 
 
 # ── Feature 8: _build_org_health_data ───────────────────────────────────────
 
 def _empty_org_health() -> dict:
+    hero_ctx = _get_hero_search_context()
     return {
+        "mode": "search",
         "reviewer_cards": [],
         "module_safety": [],
         "org_kpis": {
             "total_prs_scored": 0, "open_prs": 0, "high_risk_open": 0,
             "requeued_total": 0, "org_rubber_stamp_rate": 0.0,
-            "avg_residual_risk": 0.0, "total_repos": 0, "total_reviewers": 0,
+            "avg_residual_risk": 0.0, "total_repos": hero_ctx["total_repos"], "total_reviewers": 0,
             "high_fatigue_count": 0, "healthy_count": 0,
         },
         "repos": [],
+        "recent_repos": hero_ctx["recent_repos"],
+        "total_repos": hero_ctx["total_repos"],
+        "total_prs": hero_ctx["total_prs"],
         "pacing": {"rushed": 0, "brief": 0, "standard": 0, "thorough": 0,
                    "rushed_pct": 0, "brief_pct": 0, "standard_pct": 0, "thorough_pct": 0},
         "discrepancies": {"rapid_merge": 0, "self_review": 0, "no_reviewer": 0,
@@ -2646,27 +2694,38 @@ def _empty_org_health() -> dict:
     }
 
 
-def _build_org_health_data() -> dict:
+def _build_org_health_data(repo_filter: str | None = None) -> dict:
     """Org-wide reviewer health data for Feature 8 (/team-health redesign)."""
     global _health_cache
-    cached = _health_cache.get("org_health")
+    repo_key = repo_filter.lower().strip() if repo_filter and repo_filter != "all" else "all"
+    cache_key = f"org_health:{repo_key}"
+    cached = _health_cache.get(cache_key)
     if cached and (time.time() - cached["ts"]) < HEALTH_CACHE_TTL:
         return cached["data"]
 
     try:
-        all_prs = store.get_prs()
+        if repo_key != "all":
+            all_prs = store.get_prs(repo=repo_key)
+            if not all_prs and repo_key in REPO_PRS_CACHE:
+                all_prs = list(REPO_PRS_CACHE[repo_key])
+        else:
+            all_prs = store.get_prs()
+            if not all_prs:
+                for r_prs in REPO_PRS_CACHE.values():
+                    all_prs.extend(r_prs)
+
         repos = store.get_repos()
         now = time.time()
 
         # Org-level KPIs
         total_prs_scored = len(all_prs)
         open_prs = [p for p in all_prs if p.get("state") == "open"]
-        high_risk_open = [p for p in open_prs if p.get("change_risk", 0) >= 0.65]
+        high_risk_open = [p for p in open_prs if (p.get("change_risk") or 0.0) >= 0.65]
         requeued_prs = [p for p in all_prs if p.get("re_queued")]
-        all_depths = [p.get("review_depth", 0) for p in all_prs if p.get("review_depth") is not None]
+        all_depths = [p.get("review_depth", 0.0) for p in all_prs if p.get("review_depth") is not None]
         org_rubber_stamp_rate = sum(1 for d in all_depths if d < 0.15) / len(all_depths) \
                                 if all_depths else 0.0
-        avg_residual_risk = sum(p.get("residual_risk", 0) for p in all_prs) / total_prs_scored \
+        avg_residual_risk = sum((p.get("residual_risk") or 0.0) for p in all_prs) / total_prs_scored \
                             if total_prs_scored else 0.0
 
         # Per-reviewer health cards
@@ -2685,10 +2744,10 @@ def _build_org_health_data() -> dict:
                     }
                 rm = reviewer_map[reviewer]
                 rm["reviews_total"] += 1
-                scored_at = pr.get("scored_at", 0)
+                scored_at = pr.get("scored_at") or 0
                 rm["scored_ats"].append(scored_at)
-                if scored_at >= now - 86400:  rm["reviews_today"] += 1
-                if scored_at >= now - 604800: rm["reviews_week"] += 1
+                if scored_at and scored_at >= now - 86400:  rm["reviews_today"] += 1
+                if scored_at and scored_at >= now - 604800: rm["reviews_week"] += 1
                 depth = pr.get("review_depth")
                 if depth is not None:
                     rm["depth_scores"].append(depth)
@@ -2696,8 +2755,8 @@ def _build_org_health_data() -> dict:
                 rr = pr.get("residual_risk")
                 if rr is not None: rm["residual_risks"].append(rr)
                 if pr.get("re_queued"): rm["requeued_count"] += 1
-                if pr.get("change_risk", 0) >= 0.65: rm["high_risk_count"] += 1
-                rm["path_flags_all"].extend(pr.get("path_flags", []))
+                if (pr.get("change_risk") or 0.0) >= 0.65: rm["high_risk_count"] += 1
+                rm["path_flags_all"].extend(pr.get("path_flags") or [])
                 if scored_at:
                     dt = datetime.utcfromtimestamp(scored_at)
                     if dt.hour >= 23 or dt.hour < 6: rm["off_hours_count"] += 1
@@ -2813,7 +2872,9 @@ def _build_org_health_data() -> dict:
             "high_residual_requeued": len(requeued_prs),
         }
 
+        hero_ctx = _get_hero_search_context()
         result = {
+            "active_repo": repo_filter or "all",
             "reviewer_cards": reviewer_cards,
             "module_safety": module_safety,
             "org_kpis": {
@@ -2823,16 +2884,19 @@ def _build_org_health_data() -> dict:
                 "requeued_total": len(requeued_prs),
                 "org_rubber_stamp_rate": round(org_rubber_stamp_rate * 100, 1),
                 "avg_residual_risk": round(avg_residual_risk, 3),
-                "total_repos": len(repos),
+                "total_repos": 1 if repo_key != "all" else (hero_ctx["total_repos"] or len(repos)),
                 "total_reviewers": len(reviewer_cards),
                 "high_fatigue_count": sum(1 for r in reviewer_cards if r["fatigue_state"] == "high"),
                 "healthy_count": sum(1 for r in reviewer_cards if r["fatigue_state"] == "healthy"),
             },
             "repos": list(repos.values()),
+            "recent_repos": hero_ctx["recent_repos"],
+            "total_repos": hero_ctx["total_repos"],
+            "total_prs": hero_ctx["total_prs"],
             "pacing": pacing,
             "discrepancies": discrepancies,
         }
-        _health_cache["org_health"] = {"data": result, "ts": time.time()}
+        _health_cache[cache_key] = {"data": result, "ts": time.time()}
         return result
     except Exception as e:
         logger.error("_build_org_health_data error: %s", e)
@@ -2991,6 +3055,12 @@ def load_balancing():
         logger.error("load_balancing route error: %s", e)
         data = {"reviewers": [], "overloaded_count": 0, "available_count": 0,
                 "unassigned_high_risk": [], "suggestions": [], "total_open_prs": 0}
+    hero_ctx = _get_hero_search_context()
+    data.update(hero_ctx)
+    if not data.get("reviewers") and hero_ctx.get("total_prs", 0) == 0:
+        data["mode"] = "search"
+    else:
+        data["mode"] = "dashboard"
     return render_template("load_balancing.html", **data)
 
 
@@ -3089,6 +3159,12 @@ def pair_intelligence():
         logger.error("pair_intelligence route error: %s", e)
         data = {"pairs": [], "golden": [], "risky": [], "watchlist": [], "neutral": [],
                 "total_pairs": 0, "golden_count": 0, "risky_count": 0, "watchlist_count": 0}
+    hero_ctx = _get_hero_search_context()
+    data.update(hero_ctx)
+    if not data.get("pairs") and hero_ctx.get("total_prs", 0) == 0:
+        data["mode"] = "search"
+    else:
+        data["mode"] = "dashboard"
     return render_template("pair_intelligence.html", **data)
 
 
@@ -3133,7 +3209,7 @@ def _build_sla_predictions() -> dict:
                 reviewer_pr_counts: dict = {}
                 for p2 in all_prs:
                     for r in p2.get("reviewers", []):
-                        if p2.get("scored_at", 0) >= now - 86400:
+                        if (p2.get("scored_at") or 0) >= now - 86400:
                             reviewer_pr_counts[r] = reviewer_pr_counts.get(r, 0) + 1
                 avg_load = sum(
                     min(1.0, reviewer_pr_counts.get(r, 0) / 10) for r in reviewers
@@ -3154,7 +3230,7 @@ def _build_sla_predictions() -> dict:
             if not at_risk:
                 continue
 
-            change_risk = pr.get("change_risk", 0.0)
+            change_risk = pr.get("change_risk") or 0.0
             urgency = min(1.0, breach_probability * 0.60 + change_risk * 0.40)
 
             if already_breached:           status = "breached"
@@ -3163,15 +3239,20 @@ def _build_sla_predictions() -> dict:
             else:                          status = "warning"
 
             predictions.append({
-                "pr_key": pr["pr_key"], "repo": pr["repo"], "number": pr["number"],
-                "title": pr["title"][:60], "author": pr.get("author"),
-                "reviewers": reviewers, "change_risk": round(change_risk, 3),
+                "pr_key": pr.get("pr_key", ""),
+                "repo": pr.get("repo", ""),
+                "number": pr.get("number") or pr.get("pr_number", 0),
+                "title": (pr.get("title") or "")[:60],
+                "author": pr.get("author"),
+                "reviewers": reviewers,
+                "change_risk": round(change_risk, 3),
                 "age_hours": round(age_hours, 1),
                 "sla_remaining_hours": round(sla_remaining_hours, 1),
                 "predicted_breach_in": round(predicted_breach_in, 1),
                 "breach_probability": round(breach_probability, 3),
                 "reviewer_avg_load": round(avg_load, 3),
-                "urgency": round(urgency, 3), "status": status,
+                "urgency": round(urgency, 3),
+                "status": status,
                 "path_flags": pr.get("path_flags", []),
                 "html_url": pr.get("html_url", ""),
             })
@@ -3202,6 +3283,12 @@ def sla_predictions():
         data = {"predictions": [], "breached_count": 0, "imminent_count": 0,
                 "at_risk_count": 0, "warning_count": 0,
                 "sla_hours": DEFAULT_SLA_HOURS, "horizon_hours": PREDICTION_HORIZON_HOURS}
+    hero_ctx = _get_hero_search_context()
+    data.update(hero_ctx)
+    if not data.get("predictions") and hero_ctx.get("total_prs", 0) == 0:
+        data["mode"] = "search"
+    else:
+        data["mode"] = "dashboard"
     return render_template("sla_predictions.html", **data)
 
 

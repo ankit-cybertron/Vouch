@@ -6,37 +6,13 @@
 {% block footer %}{% endblock %}
 
 {% block content %}
-<!-- ── Minimal Dark Landing Header ───────────────────────────────── -->
-<header style="background:var(--color-header-bg, rgba(13, 17, 23, 0.9)); backdrop-filter:blur(12px); border-bottom:1px solid var(--color-border-default); padding:14px 0; position:sticky; top:0; z-index:100; width:100%;">
-  <div class="vouch-header-inner" style="display:flex; align-items:center; justify-content:space-between;">
-    <div style="display:flex; align-items:center; gap:24px;">
-      <a href="/" class="gh-brand" style="display:flex; align-items:center; gap:8px; color:var(--color-fg-default); font-weight:700; font-size:16px; text-decoration:none;" aria-label="Vouch Home">
-        <svg class="gh-brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1897 632" width="1897" height="632" aria-label="Vouch" role="img">
-            <path class="vouch-logo-letters" d="M603.58 181.4C677.22 174.92 741.42 241.52 735.75 314.5C732.46 356.82 706.43 393.13 669.7 413.23C654.54 421.53 636.72 426.55 619.5 427.68C602.35 428.81 584.79 426.44 568.53 420.93C553.66 415.89 539.02 407.72 527.44 397.05C514.21 384.87 503.49 370.85 496.22 354.31C490.84 342.06 487.78 329.25 486.51 315.97C485.06 300.91 487.31 285.67 491.71 271.29C507.02 221.32 551.76 185.97 603.58 181.4ZM1269.03 204.5C1269.03 226.32 1269.03 248.14 1269.03 269.95C1261.35 266.75 1254.04 262.48 1246.36 259.15C1217.6 246.69 1184.36 237.89 1154.5 252C1148.2 254.98 1142.36 259.04 1137.37 263.89C1131.44 269.65 1126.61 276.53 1123.76 284.32C1120.91 292.1 1119.44 300.19 1119.52 308.5C1119.99 353.22 1160.99 374.45 1201.5 369.97C1219.99 367.93 1237.46 361.64 1254.14 353.61C1259.13 351.2 1263.92 348.33 1269.01 346.18C1269.01 366.54 1269.01 386.89 1269.01 407.24C1263.66 409.45 1258.56 412.38 1253.22 414.68C1239.86 420.42 1225.75 424.3 1211.42 426.68C1148.68 437.09 1078.32 416.63 1053.1 353.46C1048.03 340.77 1045.25 327.16 1044.9 313.5C1044.55 299.73 1046.39 286.4 1050.77 273.35C1069.06 218.92 1124.73 185.7 1180.5 183.23C1211.42 181.86 1241.99 189.63 1269.03 204.5ZM287.76 188.28C305.67 237.43 323.59 286.57 341.5 335.71C360.83 286.57 380.17 237.44 399.5 188.3C426.27 188.3 453.05 188.3 479.82 188.3C479.68 194.8 475.38 201.4 472.91 207.47C466.41 223.38 459.04 238.93 452.23 254.7C434.94 294.71 416.97 334.49 398.45 373.95C393.22 385.1 388.13 396.33 383.06 407.56C380.74 412.7 378.91 418.62 375.5 423.1C351.17 423.1 326.83 423.1 302.5 423.1C300.3 416.59 297.11 410.44 294.45 404.08C288.18 389.13 281.55 374.33 275.01 359.5C259.65 324.67 244.93 289.52 230.02 254.5C223.25 238.59 216.09 222.83 209.69 206.76C207.56 201.41 202.38 194.03 202.74 188.28C231.08 188.28 259.42 188.28 287.76 188.28ZM849.96 188.29C851.06 192.46 850.51 197.14 850.55 201.5C850.63 211.16 850.6 220.83 850.58 230.5C850.53 259.17 850.48 287.83 850.58 316.5C850.67 340.14 851.63 362.74 878.5 370.06C883.29 371.36 888.54 371.82 893.5 371.77C898.14 371.72 902.94 371.18 907.38 369.81C931.6 362.33 933.91 340.42 933.98 318.5C934.08 289.83 934 261.17 933.98 232.5C933.98 218.05 932.49 202.59 934.42 188.3C960.12 188.3 985.81 188.3 1011.5 188.3C1012.65 196.84 1011.94 205.86 1011.95 214.5C1011.96 230.83 1011.91 247.17 1011.94 263.5C1011.97 278.83 1012 294.17 1011.95 309.5C1011.86 335.33 1011 359.8 996.84 382.33C968.28 427.77 901.24 434.36 853.42 425.26C828.2 420.46 804.08 408.9 789.58 386.91C767.27 353.08 772.87 308.17 772.81 269.5C772.78 252.17 772.82 234.83 772.81 217.5C772.8 207.88 771.96 197.82 773.16 188.29C798.76 188.29 824.36 188.29 849.96 188.29ZM1403.27 188.29C1403.27 218.39 1403.27 248.48 1403.27 278.57C1432.68 278.57 1462.09 278.57 1491.5 278.57C1493.44 271.74 1492.35 263.64 1492.35 256.5C1492.35 241.5 1492.37 226.5 1492.36 211.5C1492.36 204.12 1491.09 195.41 1492.91 188.29C1519.23 188.29 1545.55 188.29 1571.87 188.29C1571.87 266.56 1571.87 344.83 1571.87 423.1C1545.36 423.1 1518.86 423.1 1492.35 423.1C1492.35 394.38 1492.35 365.66 1492.35 336.94C1462.67 336.94 1432.98 336.94 1403.29 336.94C1403.29 365.66 1403.29 394.38 1403.29 423.1C1377.15 423.1 1351 423.1 1324.85 423.1C1324.85 344.83 1324.85 266.56 1324.85 188.29C1350.99 188.29 1377.13 188.29 1403.27 188.29ZM643.5 252.86C629.67 249.79 616.59 247.35 602.32 248.56C596.97 249.01 591.75 249.9 586.54 251.16C584.23 251.73 581.04 253.33 578.66 252.81C575.79 252.19 572.42 248.17 569.95 246.54C562.69 241.75 551.32 235.73 542.44 237.5C536.84 250.1 537.46 263.97 542.67 276.5C536.75 286.54 532.29 295.64 531.13 307.5C530.43 314.66 531.05 321.62 532.78 328.59C544.8 377.15 607.32 389.89 648.16 372.64C672.72 362.27 691.85 339.18 690.76 311.5C690.2 297.39 685.11 288.59 679.06 276.5C683.87 264 685.65 249.99 679.5 237.5C666.54 235.72 653.29 245.73 643.5 252.86Z" fill="currentColor" fill-rule="evenodd" />
-            <path class="vouch-logo-dot" d="M1686.88 345.61C1686.88 371.46 1686.88 397.32 1686.88 423.17C1660.74 423.17 1634.61 423.17 1608.47 423.17C1608.47 397.32 1608.47 371.46 1608.47 345.61C1634.61 345.61 1660.74 345.61 1686.88 345.61Z" fill="#3fb950" fill-rule="evenodd" />
-          </svg>
-        {% if app_version %}
-        <span class="gh-version-badge" title="Commit: {{ app_version.commit_short }} ({{ app_version.branch }})">v{{ app_version.version }}</span>
-        {% else %}
-        <span class="gh-version-badge">v2.7</span>
-        {% endif %}
-      </a>
-      <div style="display:flex; align-items:center; gap:20px; font-size:13.5px; font-weight:500;">
-        <a href="#how-it-works" style="color:var(--color-fg-muted); text-decoration:none;">How it works</a>
-        <a href="#capabilities" style="color:var(--color-fg-muted); text-decoration:none;">Capabilities</a>
-        <a href="#video-demo" style="color:var(--color-fg-muted); text-decoration:none;">Video Walkthrough</a>
-        <a href="#contributors-contact" style="color:var(--color-fg-muted); text-decoration:none;">Contributors</a>
-      </div>
-    </div>
-    <div style="display:flex; align-items:center; gap:10px;">
-      <button type="button" class="theme-toggle-btn" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme (Light / Dark)">
-        <svg class="sun-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none;"><path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM8 13a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13ZM2.343 2.343a.75.75 0 0 1 1.061 0l1.06 1.061a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.061ZM11.536 11.536a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 0-1.061ZM0 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 8ZM13 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 13 8ZM2.343 13.657a.75.75 0 0 1 0-1.06l1.06-1.061a.75.75 0 1 1 1.061 1.06l-1.06 1.061a.75.75 0 0 1-1.061 0ZM11.536 4.464a.75.75 0 0 1 0-1.06l1.061-1.061a.75.75 0 0 1 1.06 1.06l-1.06 1.061a.75.75 0 0 1-1.061 0Z"></path></svg>
-        <svg class="moon-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.75.75 0 0 1 .785.175 7 7 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Z"></path></svg>
-      </button>
-
-    </div>
-  </div>
-</header>
+<!-- ── Floating Corner Theme Toggle ────────────────────────── -->
+<div class="vouch-corner-theme-toggle">
+  <button type="button" class="theme-toggle-btn" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme (Light / Dark)">
+    <svg class="sun-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none;"><path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM8 13a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13ZM2.343 2.343a.75.75 0 0 1 1.061 0l1.06 1.061a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.061ZM11.536 11.536a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 0-1.061ZM0 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 8ZM13 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 13 8ZM2.343 13.657a.75.75 0 0 1 0-1.06l1.06-1.061a.75.75 0 1 1 1.061 1.06l-1.06 1.061a.75.75 0 0 1-1.061 0ZM11.536 4.464a.75.75 0 0 1 0-1.06l1.061-1.061a.75.75 0 0 1 1.06 1.06l-1.06 1.061a.75.75 0 0 1-1.061 0Z"></path></svg>
+    <svg class="moon-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.75.75 0 0 1 .785.175 7 7 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Z"></path></svg>
+  </button>
+</div>
 
 <div class="vouch-landing-wrapper">
 
@@ -78,11 +54,17 @@
         </div>
 
         <div class="vouch-hero-cta-group">
-          <a href="#demo-analysis" class="vouch-btn-secondary">
-            <span>Explore demo ↓</span>
+          <a href="#capabilities" class="vouch-btn-secondary">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-accent-fg); flex-shrink:0;">
+              <path d="M9.504.43a1.5 1.5 0 0 1 1.264.508 1.498 1.498 0 0 1 .17 1.36L9.68 6h3.57a1.5 1.5 0 0 1 1.196 2.404l-6.5 8.5a1.5 1.5 0 0 1-2.634-1.264l1.258-3.64H2.75A1.5 1.5 0 0 1 1.554 9.6l6.5-8.5A1.5 1.5 0 0 1 9.504.43Z"></path>
+            </svg>
+            <span>Capabilities</span>
           </a>
-          <a href="#capabilities" class="vouch-btn-secondary" style="color:var(--color-fg-muted);">
-            <span>Capabilities →</span>
+          <a href="#contributors-contact" class="vouch-btn-secondary">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-done-fg, #a371f7); flex-shrink:0;">
+              <path d="M2 5.5a3.5 3.5 0 1 1 5.898 2.549 5.508 5.508 0 0 1 3.034 4.084.75.75 0 1 1-1.482.235 4.002 4.002 0 0 0-6.899 0 .75.75 0 0 1-1.482-.236A5.507 5.507 0 0 1 3.102 8.05 3.493 3.493 0 0 1 2 5.5ZM11 4a3.001 3.001 0 0 1 2.22 5.018 5.01 5.01 0 0 1 2.56 3.012.749.749 0 0 1-.885.954.752.752 0 0 1-.549-.514 3.507 3.507 0 0 0-2.522-2.372.75.75 0 0 1-.574-.73v-.352a.75.75 0 0 1 .416-.672A1.5 1.5 0 0 0 11 5.5.75.75 0 0 1 11 4Zm-5.5-.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"></path>
+            </svg>
+            <span>Contributors</span>
           </a>
           <a href="#video-tutorial" class="vouch-btn-secondary vouch-btn-video-tutorial" id="hero-video-tutorial-btn">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="color:#ff0000; flex-shrink:0;">
@@ -206,12 +188,13 @@
       </div>
 
     </div>
+  </section>
 
 
 
   <!-- ── 3. HOW VOUCH WORKS SECTION ───────────────────────────── -->
   <section class="vouch-section" id="how-it-works">
-    <div class="vouch-section-header">
+    <div class="vouch-section-header vouch-reveal">
       <span class="vouch-section-kicker">Workflow Pipeline</span>
       <h2 class="vouch-section-title">How Vouch works</h2>
       <p class="vouch-section-sub">
@@ -219,7 +202,7 @@
       </p>
     </div>
 
-    <div class="vouch-steps-grid">
+    <div class="vouch-steps-grid vouch-reveal">
       <!-- Step 01 -->
       <div class="vouch-step-card">
         <span class="vouch-step-num">STEP 01</span>
@@ -260,7 +243,7 @@
 
   <!-- ── 4. PRODUCT CAPABILITIES SECTION ──────────────────────── -->
   <section class="vouch-section" id="capabilities">
-    <div class="vouch-section-header">
+    <div class="vouch-section-header vouch-reveal">
       <span class="vouch-section-kicker">Product Capabilities</span>
       <h2 class="vouch-section-title">Engineered for technical rigor</h2>
       <p class="vouch-section-sub">
@@ -268,7 +251,7 @@
       </p>
     </div>
 
-    <div class="vouch-capabilities-grid">
+    <div class="vouch-capabilities-grid vouch-reveal">
       <!-- Capability 1 -->
       <div class="vouch-capability-card">
         <div class="vouch-capability-icon">
@@ -337,129 +320,12 @@
     </div>
   </section>
 
-  <!-- ── 5. DEEP PRODUCT PREVIEW SECTION ─────────────────────── -->
-  <section class="vouch-section" id="demo-analysis">
-    <div class="vouch-section-header">
-      <span class="vouch-section-kicker">Live Product Preview</span>
-      <h2 class="vouch-section-title">Deep review intelligence in action</h2>
-      <p class="vouch-section-sub">
-        Sample analysis screen showing how Vouch evaluates pull requests in real time.
-      </p>
-    </div>
 
-    <!-- Product Screen Frame -->
-    <div class="vouch-ui-card">
-      <div class="vouch-ui-card-header">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:var(--color-fg-muted);"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"></path></svg>
-          <span style="font-size:13px; font-weight:600; color:var(--color-fg-default);">kubernetes/kubernetes</span>
-          <span style="color:var(--color-fg-subtle);">/</span>
-          <span style="font-size:13px; font-weight:600; color:var(--color-fg-default);">#118492</span>
-        </div>
-        <div class="vouch-badge vouch-badge-high">
-          <span>🚨 Re-review Required</span>
-        </div>
-      </div>
-
-      <div class="vouch-ui-card-body">
-        <div style="font-size:18px; font-weight:700; color:var(--color-fg-default); margin-bottom:6px;">
-          feat(net): rewrite iptables proxy sync loop
-        </div>
-        <div style="font-size:13px; color:var(--color-fg-muted); margin-bottom:20px;">
-          Opened by @thockin · 840 lines diff across 14 sensitive security files
-        </div>
-
-        <div class="vouch-ui-metrics-grid">
-          <div class="vouch-metric-box">
-            <span class="vouch-info-tooltip-trigger" tabindex="0" role="tooltip">
-              <span class="vouch-metric-label">Change Risk</span>
-              <svg class="vouch-info-icon" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v3.5h.5a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5h.5v-2.75H7.25A.75.75 0 0 1 6.5 7.75ZM8 4.25a.875.875 0 1 0 0 1.75.875.875 0 0 0 0-1.75Z"></path>
-              </svg>
-              <div class="vouch-popover-tooltip">
-                <div class="vouch-popover-title">Change Risk · Model 1 (XGBoost)</div>
-                <div class="vouch-popover-body">
-                  Predicted defect probability (0.00–1.00) based on diff churn, modified sensitive files, and author risk history.
-                </div>
-                <div class="vouch-popover-meta">
-                  <span>Higher = larger blast radius</span>
-                </div>
-              </div>
-            </span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-metric-num" style="color:var(--color-danger-fg);">0.92</span>
-              <span class="vouch-badge vouch-badge-high">HIGH</span>
-            </div>
-          </div>
-
-          <div class="vouch-metric-box">
-            <span class="vouch-info-tooltip-trigger" tabindex="0" role="tooltip">
-              <span class="vouch-metric-label">Review Scrutiny</span>
-              <svg class="vouch-info-icon" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v3.5h.5a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5h.5v-2.75H7.25A.75.75 0 0 1 6.5 7.75ZM8 4.25a.875.875 0 1 0 0 1.75.875.875 0 0 0 0-1.75Z"></path>
-              </svg>
-              <div class="vouch-popover-tooltip">
-                <div class="vouch-popover-title">Review Confidence · Models 2 &amp; 3</div>
-                <div class="vouch-popover-body">
-                  Scrutiny score (0.00–1.00) combining DistilBERT semantic review depth with reviewer familiarity and session dwell time.
-                </div>
-                <div class="vouch-popover-meta">
-                  <span>Lower = rushed or shallow review</span>
-                </div>
-              </div>
-            </span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-metric-num" style="color:var(--color-attention-fg);">0.18</span>
-              <span class="vouch-badge vouch-badge-high">SHALLOW</span>
-            </div>
-          </div>
-
-          <div class="vouch-metric-box">
-            <span class="vouch-info-tooltip-trigger" tabindex="0" role="tooltip">
-              <span class="vouch-metric-label">Residual Risk</span>
-              <svg class="vouch-info-icon" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v3.5h.5a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5h.5v-2.75H7.25A.75.75 0 0 1 6.5 7.75ZM8 4.25a.875.875 0 1 0 0 1.75.875.875 0 0 0 0-1.75Z"></path>
-              </svg>
-              <div class="vouch-popover-tooltip">
-                <div class="vouch-popover-title">Residual Risk · Core Equation</div>
-                <div class="vouch-popover-formula">
-                  <code>Residual = Change × (1 − Confidence)</code>
-                </div>
-                <div class="vouch-popover-body">
-                  Unmitigated risk surviving review. ≥ 0.65 triggers an automated re-queue to protect production.
-                </div>
-                <div class="vouch-popover-meta">
-                  <span style="color:var(--color-danger-fg); font-weight:600;">0.75 = Re-review required</span>
-                </div>
-              </div>
-            </span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-metric-num" style="color:var(--color-danger-fg);">0.75</span>
-              <span class="vouch-badge vouch-badge-high">HIGH</span>
-            </div>
-          </div>
-
-          <div class="vouch-metric-box">
-            <span class="vouch-metric-label">Action</span>
-            <div class="vouch-metric-value-row">
-              <span class="vouch-badge vouch-badge-high">RE-QUEUE</span>
-            </div>
-          </div>
-        </div>
-
-        <div style="text-align:center; padding-top:10px;">
-          <a href="/repos" class="vouch-btn-secondary">
-            <span>Explore full repository catalog →</span>
-          </a>
-        </div>
-      </div>
-    </div>
-  </section>
 
   <!-- ── 6. VIDEO DEMO & WALKTHROUGH SECTION ─────────────────── -->
   <section class="vouch-section" id="video-demo" style="margin-top:40px; margin-bottom:20px; position:relative;">
     <span id="video-tutorial" style="position:absolute; top:-70px; left:0; visibility:hidden; pointer-events:none;"></span>
-    <div class="vouch-section-header">
+    <div class="vouch-section-header vouch-reveal">
       <span class="vouch-section-kicker">Architecture &amp; Walkthrough</span>
       <h2 class="vouch-section-title">Watch Vouch in action</h2>
       <p class="vouch-section-sub">
@@ -467,7 +333,7 @@
       </p>
     </div>
 
-    <div class="vouch-video-card">
+    <div class="vouch-video-card vouch-reveal">
       <div class="vouch-video-player-wrapper" id="vouch-video-wrapper">
         <!-- Thumbnail Poster Overlay: Guarantees high-res thumbnail is visible instead of blank/black screen -->
         <div
@@ -543,7 +409,7 @@
 
   <!-- ── 7. CONTRIBUTORS & CONTACT SECTION ───────────────────── -->
   <section class="vouch-section" id="contributors-contact" style="margin-top:60px; margin-bottom:40px;">
-    <div class="vouch-section-header" style="text-align:center; max-width:680px; margin:0 auto 36px;">
+    <div class="vouch-section-header vouch-reveal" style="text-align:center; max-width:680px; margin:0 auto 36px;">
       <span class="vouch-section-kicker">Core Team &amp; Open Source</span>
       <h2 class="vouch-section-title">Contributors</h2>
       <p class="vouch-section-sub">
@@ -552,7 +418,7 @@
     </div>
 
     <!-- 3 Contributors Grid -->
-    <div class="vouch-contributors-grid">
+    <div class="vouch-contributors-grid vouch-reveal">
       
       <!-- Contributor 1: Ankit -->
       <a href="https://github.com/ankit-cybertron" target="_blank" rel="noopener noreferrer" class="vouch-contributor-card">
@@ -587,7 +453,7 @@
     </div>
 
     <!-- Contact Box with Mail -->
-    <div class="vouch-contact-box">
+    <div class="vouch-contact-box vouch-reveal">
       <div class="vouch-contact-kicker">Get in Touch</div>
       <div class="vouch-contact-desc">
         Questions, security disclosures, or contributor inquiries?
@@ -705,6 +571,38 @@
           try { history.pushState(null, '', '#video-tutorial'); } catch (err) {}
         }
       });
+    }
+
+    // Scroll reveal observer for landing page elements
+    var reveals = document.querySelectorAll('.vouch-reveal');
+    if (reveals.length) {
+      if ('IntersectionObserver' in window) {
+        var revealObserver = new IntersectionObserver(function(entries, observer) {
+          entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('vouch-revealed');
+              observer.unobserve(entry.target);
+            }
+          });
+        }, {
+          root: null,
+          rootMargin: '0px 0px -40px 0px',
+          threshold: 0.08
+        });
+
+        reveals.forEach(function(el) {
+          var rect = el.getBoundingClientRect();
+          if (rect.top < window.innerHeight) {
+            el.classList.add('vouch-revealed');
+          } else {
+            revealObserver.observe(el);
+          }
+        });
+      } else {
+        reveals.forEach(function(el) {
+          el.classList.add('vouch-revealed');
+        });
+      }
     }
   });
 </script>

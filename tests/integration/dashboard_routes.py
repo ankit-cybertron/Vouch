@@ -55,7 +55,22 @@ class TestDashboardCoreRoutes:
         assert res.status_code == 200
         html = res.get_data(as_text=True)
         assert "Org" in html or "Health" in html
-        assert "Reviewer" in html
+
+        # Test search mode has correct target templates and buttons
+        res_search = client.get("/team-health?view=search")
+        assert res_search.status_code == 200
+        html_search = res_search.get_data(as_text=True)
+        assert "hero-search-page" in html_search
+        assert 'data-target-template="/team-health?repo={owner}/{repo}"' in html_search
+        assert "View Health" in html_search
+        assert 'href="/team-health?repo=all"' in html_search
+
+        # Test viewing aggregate dashboard
+        res_dash = client.get("/team-health?repo=all")
+        assert res_dash.status_code == 200
+        html_dash = res_dash.get_data(as_text=True)
+        assert "Org-Wide Reviewer Health" in html_dash
+        assert "Change Repository" in html_dash
 
     def test_validation_route_compatibility(self, client):
         """GET /validation renders org health analytics for backward compatibility."""

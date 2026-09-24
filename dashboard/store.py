@@ -308,7 +308,7 @@ class JsonStorageBackend(StorageBackend):
                 reviewers = p.get("reviewers", [])
                 if isinstance(reviewers, list) and len(reviewers) == 0:
                     result.append(p)
-            result.sort(key=lambda p: p.get("change_risk", 0), reverse=True)
+            result.sort(key=lambda p: p.get("change_risk") or 0.0, reverse=True)
             return result
         except Exception as e:
             logger.error("JsonStorageBackend get_open_unreviewed_prs failed: %s", e)
@@ -570,7 +570,7 @@ class DynamoDbStorageBackend(StorageBackend):
                 reviewers = p.get("reviewers", [])
                 if isinstance(reviewers, list) and len(reviewers) == 0:
                     result.append(p)
-            result.sort(key=lambda p: p.get("change_risk", 0), reverse=True)
+            result.sort(key=lambda p: p.get("change_risk") or 0.0, reverse=True)
             return result
         except Exception as e:
             logger.error("DynamoDB get_open_unreviewed_prs failed: %s", e)
